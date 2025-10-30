@@ -1,0 +1,409 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Vooters Break - Breaks de Cartes</title>
+    <script crossorigin src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
+    <script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
+    <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+    <script src="https://cdn.tailwindcss.com"></script>
+    
+    <!-- Firebase -->
+    <script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-app-compat.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-database-compat.js"></script>
+    
+    <style>
+        @keyframes fadeIn {
+            from { opacity: 0; transform: translateY(20px); }
+            to { opacity: 1; transform: translateY(0); }
+        }
+        .animate-fadeIn { animation: fadeIn 0.5s ease-out; }
+    </style>
+</head>
+<body>
+    <div id="root"></div>
+
+    <script type="text/babel">
+        const { useState, useEffect } = React;
+
+        // ✅ VOS CREDENTIALS FIREBASE CONFIGURÉS
+        const firebaseConfig = {
+            apiKey: "AIzaSyBe3ftCo_LjKuKJinDWwYEH39lM8-RrN7I",
+            authDomain: "vooter-s-break-1cc7f.firebaseapp.com",
+            databaseURL: "https://vooter-s-break-1cc7f-default-rtdb.firebaseio.com",
+            projectId: "vooter-s-break-1cc7f",
+            storageBucket: "vooter-s-break-1cc7f.firebasestorage.app",
+            messagingSenderId: "110233483951",
+            appId: "1:110233483951:web:87372560112c986c1b725a"
+        };
+
+        // Initialiser Firebase
+        if (!firebase.apps.length) {
+            firebase.initializeApp(firebaseConfig);
+        }
+        const database = firebase.database();
+
+        function VootersBreakPublic() {
+            const [breaks, setBreaks] = useState([]);
+            const [selectedBreak, setSelectedBreak] = useState(null);
+            const [selectedSpots, setSelectedSpots] = useState([]);
+            const [showReservation, setShowReservation] = useState(false);
+            const [loading, setLoading] = useState(true);
+            const [submitted, setSubmitted] = useState(false);
+            
+            const [reservationForm, setReservationForm] = useState({
+                name: '',
+                email: '',
+                phone: '',
+                message: ''
+            });
+
+            useEffect(() => {
+                // Écouter les changements en temps réel
+                const breaksRef = database.ref('breaks');
+                breaksRef.on('value', (snapshot) => {
+                    const data = snapshot.val();
+                    if (data) {
+                        const breaksArray = Object.keys(data).map(key => ({
+                            ...data[key],
+                            id: key
+                        })).filter(b => b.status === 'upcoming' || b.status === 'live');
+                        setBreaks(breaksArray);
+                    }
+                    setLoading(false);
+                });
+
+                return () => breaksRef.off();
+            }, []);
+
+            const getAvailableSpots = (breakItem) => {
+                const takenSpots = new Set();
+                if (breakItem.participants) {
+                    Object.values(breakItem.participants).forEach(p => {
+                        p.spots.forEach(spot => takenSpots.add(parseInt(spot)));
+                    });
+                }
+                
+                const available = [];
+                for (let i = 1; i <= breakItem.totalSpots; i++) {
+                    if (!takenSpots.has(i)) {
+                        available.push(i);
+                    }
+                }
+                return available;
+            };
+
+            const getSpotStatus = (breakItem, spotNumber) => {
+                const takenSpots = new Set();
+                if (breakItem.participants) {
+                    Object.values(breakItem.participants).forEach(p => {
+                        p.spots.forEach(spot => takenSpots.add(parseInt(spot)));
+                    });
+                }
+                return takenSpots.has(spotNumber);
+            };
+
+            const toggleSpot = (spotNumber) => {
+                if (selectedSpots.includes(spotNumber)) {
+                    setSelectedSpots(selectedSpots.filter(s => s !== spotNumber));
+                } else {
+                    setSelectedSpots([...selectedSpots, spotNumber]);
+                }
+            };
+
+            const submitReservation = () => {
+                if (!reservationForm.name || !reservationForm.email || selectedSpots.length === 0) {
+                    alert('Veuillez remplir tous les champs obligatoires et sélectionner au moins un spot');
+                    return;
+                }
+
+                const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+                if (!emailRegex.test(reservationForm.email)) {
+                    alert('Veuillez entrer une adresse email valide');
+                    return;
+                }
+
+                const reservation = {
+                    breakId: selectedBreak.id,
+                    breakTitle: selectedBreak.title,
+                    name: reservationForm.name,
+                    email: reservationForm.email,
+                    phone: reservationForm.phone,
+                    spots: selectedSpots.sort((a, b) => a - b),
+                    totalAmount: selectedSpots.length * parseFloat(selectedBreak.pricePerSpot),
+                    timestamp: new Date().toISOString(),
+                    status: 'pending',
+                    message: reservationForm.message
+                };
+
+                // Sauvegarder dans Firebase
+                database.ref('reservations').push(reservation).then(() => {
+                    setSubmitted(true);
+                    
+                    setTimeout(() => {
+                        setShowReservation(false);
+                        setSelectedSpots([]);
+                        setReservationForm({ name: '', email: '', phone: '', message: '' });
+                        setSubmitted(false);
+                    }, 5000);
+                }).catch((error) => {
+                    alert('Erreur lors de la réservation. Veuillez réessayer.');
+                    console.error(error);
+                });
+            };
+
+            if (loading) {
+                return React.createElement('div', {
+                    className: "min-h-screen bg-gradient-to-br from-blue-900 via-indigo-900 to-purple-900 flex items-center justify-center"
+                }, React.createElement('div', { className: "text-center" },
+                    React.createElement('div', { className: "w-16 h-16 border-4 border-white border-t-transparent rounded-full animate-spin mx-auto mb-4" }),
+                    React.createElement('p', { className: "text-white text-xl font-semibold" }, "Chargement des breaks...")
+                ));
+            }
+
+            return React.createElement('div', { className: "min-h-screen bg-gradient-to-br from-blue-900 via-indigo-900 to-purple-900" },
+                // Header
+                React.createElement('div', { className: "bg-black bg-opacity-30 backdrop-blur-sm border-b border-white border-opacity-20" },
+                    React.createElement('div', { className: "max-w-7xl mx-auto px-4 py-6" },
+                        React.createElement('div', { className: "text-center" },
+                            React.createElement('h1', { className: "text-5xl font-black text-white mb-2" }, "🏒 VOOTERS BREAK 🏒"),
+                            React.createElement('p', { className: "text-xl text-blue-200 font-semibold" }, "Breaks de cartes de collection"),
+                            React.createElement('p', { className: "text-sm text-blue-300 mt-2" }, "Hockey • Baseball • Basketball • Football")
+                        )
+                    )
+                ),
+
+                // Content
+                React.createElement('div', { className: "max-w-7xl mx-auto px-4 py-8" },
+                    breaks.length === 0 ? 
+                        React.createElement('div', { className: "bg-white bg-opacity-10 backdrop-blur-md rounded-2xl p-12 text-center border border-white border-opacity-20" },
+                            React.createElement('div', { className: "text-6xl mb-4" }, "📦"),
+                            React.createElement('h2', { className: "text-2xl font-bold text-white mb-2" }, "Aucun break disponible"),
+                            React.createElement('p', { className: "text-blue-200" }, "Revenez bientôt pour voir nos prochains breaks!")
+                        )
+                    :
+                        React.createElement('div', { className: "space-y-6" },
+                            breaks.map(breakItem => {
+                                const availableSpots = getAvailableSpots(breakItem);
+                                const soldSpots = breakItem.totalSpots - availableSpots.length;
+                                const percentSold = (soldSpots / breakItem.totalSpots) * 100;
+
+                                return React.createElement('div', {
+                                    key: breakItem.id,
+                                    className: "bg-white bg-opacity-10 backdrop-blur-md rounded-2xl overflow-hidden border border-white border-opacity-20 hover:border-opacity-40 transition-all"
+                                },
+                                    React.createElement('div', { className: "p-6" },
+                                        React.createElement('div', { className: "flex items-start justify-between mb-4" },
+                                            React.createElement('div', { className: "flex-1" },
+                                                React.createElement('div', { className: "flex items-center gap-3 mb-2" },
+                                                    React.createElement('h2', { className: "text-3xl font-black text-white" }, breakItem.title),
+                                                    breakItem.status === 'live' ? 
+                                                        React.createElement('span', { className: "flex items-center gap-1 px-3 py-1 bg-red-500 text-white rounded-full text-sm font-bold animate-pulse" }, "⚡ EN DIRECT")
+                                                    :
+                                                        React.createElement('span', { className: "px-3 py-1 bg-blue-500 text-white rounded-full text-sm font-semibold" }, "À VENIR")
+                                                ),
+                                                React.createElement('p', { className: "text-xl text-blue-200 font-semibold mb-2" }, breakItem.product),
+                                                breakItem.description && React.createElement('p', { className: "text-blue-300" }, breakItem.description)
+                                            )
+                                        ),
+
+                                        React.createElement('div', { className: "grid grid-cols-2 sm:grid-cols-4 gap-4 mb-6" },
+                                            React.createElement('div', { className: "bg-black bg-opacity-30 rounded-xl p-4" },
+                                                React.createElement('p', { className: "text-sm text-blue-300 mb-1" }, "📦 Boîtes"),
+                                                React.createElement('p', { className: "text-2xl font-bold text-white" }, breakItem.boxCount)
+                                            ),
+                                            React.createElement('div', { className: "bg-black bg-opacity-30 rounded-xl p-4" },
+                                                React.createElement('p', { className: "text-sm text-blue-300 mb-1" }, "💰 Prix/spot"),
+                                                React.createElement('p', { className: "text-2xl font-bold text-white" }, breakItem.pricePerSpot + "$")
+                                            ),
+                                            React.createElement('div', { className: "bg-black bg-opacity-30 rounded-xl p-4" },
+                                                React.createElement('p', { className: "text-sm text-blue-300 mb-1" }, "👥 Disponibles"),
+                                                React.createElement('p', { className: "text-2xl font-bold text-white" }, availableSpots.length + "/" + breakItem.totalSpots)
+                                            ),
+                                            React.createElement('div', { className: "bg-black bg-opacity-30 rounded-xl p-4" },
+                                                React.createElement('p', { className: "text-sm text-blue-300 mb-1" }, "📅 Date"),
+                                                React.createElement('p', { className: "text-lg font-bold text-white" }, breakItem.date || 'TBD'),
+                                                breakItem.time && React.createElement('p', { className: "text-sm text-blue-300" }, breakItem.time)
+                                            )
+                                        ),
+
+                                        React.createElement('div', { className: "mb-6" },
+                                            React.createElement('div', { className: "flex items-center justify-between mb-2" },
+                                                React.createElement('span', { className: "text-sm font-semibold text-blue-300" }, "Spots vendus"),
+                                                React.createElement('span', { className: "text-sm font-bold text-white" }, percentSold.toFixed(0) + "%")
+                                            ),
+                                            React.createElement('div', { className: "w-full bg-black bg-opacity-30 rounded-full h-4 overflow-hidden" },
+                                                React.createElement('div', {
+                                                    className: "h-full bg-gradient-to-r from-green-400 to-blue-500 transition-all duration-500",
+                                                    style: { width: percentSold + "%" }
+                                                })
+                                            )
+                                        ),
+
+                                        availableSpots.length > 0 ?
+                                            React.createElement('button', {
+                                                onClick: () => {
+                                                    setSelectedBreak(breakItem);
+                                                    setShowReservation(true);
+                                                    setSelectedSpots([]);
+                                                },
+                                                className: "w-full bg-gradient-to-r from-green-500 to-blue-500 text-white font-black text-xl py-4 rounded-xl hover:from-green-600 hover:to-blue-600 transition-all shadow-lg hover:shadow-2xl transform hover:scale-105"
+                                            }, "🎯 RÉSERVER MES SPOTS")
+                                        :
+                                            React.createElement('div', {
+                                                className: "w-full bg-red-500 bg-opacity-50 text-white font-bold text-xl py-4 rounded-xl text-center border-2 border-red-400"
+                                            }, "COMPLET - Tous les spots sont réservés"),
+
+                                        // Résultats randomizer
+                                        breakItem.randomizedTeams && breakItem.randomizedTeams.length > 0 && 
+                                            React.createElement('div', { className: "mt-6 bg-green-500 bg-opacity-20 border-2 border-green-400 rounded-xl p-4" },
+                                                React.createElement('h3', { className: "text-xl font-bold text-white mb-3" }, "🏆 Résultats du Randomizer"),
+                                                React.createElement('div', { className: "grid grid-cols-2 sm:grid-cols-3 gap-2 max-h-60 overflow-y-auto" },
+                                                    breakItem.randomizedTeams.map((result, idx) =>
+                                                        React.createElement('div', { key: idx, className: "bg-black bg-opacity-40 rounded-lg p-2" },
+                                                            React.createElement('p', { className: "text-xs text-blue-300" }, result.participant),
+                                                            React.createElement('p', { className: "text-sm font-bold text-white" }, result.team)
+                                                        )
+                                                    )
+                                                )
+                                            )
+                                    )
+                                );
+                            })
+                        )
+                ),
+
+                // Modal de réservation
+                showReservation && selectedBreak && React.createElement('div', {
+                    className: "fixed inset-0 bg-black bg-opacity-80 backdrop-blur-sm flex items-center justify-center z-50 p-4 overflow-y-auto"
+                },
+                    React.createElement('div', { className: "bg-gradient-to-br from-gray-900 to-gray-800 rounded-2xl max-w-4xl w-full border-2 border-blue-500 shadow-2xl my-8" },
+                        React.createElement('div', { className: "p-6" },
+                            submitted ?
+                                React.createElement('div', { className: "text-center py-12" },
+                                    React.createElement('div', { className: "text-6xl mb-4" }, "✅"),
+                                    React.createElement('h2', { className: "text-3xl font-bold text-white mb-4" }, "Réservation envoyée!"),
+                                    React.createElement('div', { className: "bg-blue-500 bg-opacity-20 border-2 border-blue-400 rounded-xl p-6 mb-4" },
+                                        React.createElement('p', { className: "text-xl text-white font-semibold mb-4" }, "Prochaine étape:"),
+                                        React.createElement('p', { className: "text-lg text-blue-200 mb-2" }, "Envoyez votre paiement Interac:"),
+                                        React.createElement('div', { className: "bg-black bg-opacity-40 rounded-lg p-4 mb-4" },
+                                            React.createElement('p', { className: "text-2xl font-bold text-green-400" }, "vootersbreak@gmail.com")
+                                        ),
+                                        React.createElement('p', { className: "text-white font-semibold mb-2" }, "Montant: " + selectedSpots.length * parseFloat(selectedBreak.pricePerSpot) + "$"),
+                                        React.createElement('p', { className: "text-blue-300 text-sm" }, "Spots: " + selectedSpots.sort((a, b) => a - b).join(', '))
+                                    ),
+                                    React.createElement('p', { className: "text-blue-300" }, "Fermeture automatique...")
+                                )
+                            :
+                                React.createElement(React.Fragment, null,
+                                    React.createElement('div', { className: "flex items-center justify-between mb-6" },
+                                        React.createElement('h2', { className: "text-2xl font-bold text-white" }, "Réserver - " + selectedBreak.title),
+                                        React.createElement('button', {
+                                            onClick: () => {
+                                                setShowReservation(false);
+                                                setSelectedSpots([]);
+                                            },
+                                            className: "text-red-400 hover:text-red-300 font-bold text-2xl"
+                                        }, "✕")
+                                    ),
+
+                                    React.createElement('div', { className: "mb-6" },
+                                        React.createElement('h3', { className: "text-xl font-bold text-white mb-4" }, "Sélectionnez vos spots:"),
+                                        React.createElement('div', { className: "grid grid-cols-8 gap-2 mb-4" },
+                                            Array.from({ length: selectedBreak.totalSpots }, (_, i) => i + 1).map(spotNumber => {
+                                                const isTaken = getSpotStatus(selectedBreak, spotNumber);
+                                                const isSelected = selectedSpots.includes(spotNumber);
+                                                
+                                                return React.createElement('button', {
+                                                    key: spotNumber,
+                                                    onClick: () => !isTaken && toggleSpot(spotNumber),
+                                                    disabled: isTaken,
+                                                    className: `aspect-square rounded-lg font-bold text-lg transition-all ${
+                                                        isTaken
+                                                            ? 'bg-red-500 bg-opacity-30 text-red-300 cursor-not-allowed'
+                                                            : isSelected
+                                                            ? 'bg-green-500 text-white shadow-lg scale-110'
+                                                            : 'bg-blue-500 bg-opacity-30 text-white hover:bg-blue-500 hover:scale-105'
+                                                    }`
+                                                }, spotNumber);
+                                            })
+                                        ),
+                                        
+                                        selectedSpots.length > 0 && React.createElement('div', { className: "bg-green-500 bg-opacity-20 border-2 border-green-400 rounded-xl p-4" },
+                                            React.createElement('p', { className: "text-white font-semibold" }, "Spots sélectionnés: " + selectedSpots.sort((a, b) => a - b).join(', ')),
+                                            React.createElement('p', { className: "text-xl text-green-400 font-bold mt-2" }, 
+                                                "Total: " + selectedSpots.length + " × " + selectedBreak.pricePerSpot + "$ = " + (selectedSpots.length * parseFloat(selectedBreak.pricePerSpot)) + "$"
+                                            )
+                                        )
+                                    ),
+
+                                    React.createElement('div', { className: "space-y-4 mb-6" },
+                                        React.createElement('input', {
+                                            type: "text",
+                                            value: reservationForm.name,
+                                            onChange: (e) => setReservationForm({...reservationForm, name: e.target.value}),
+                                            placeholder: "Nom complet *",
+                                            className: "w-full px-4 py-3 bg-black bg-opacity-40 border-2 border-blue-500 rounded-lg text-white placeholder-gray-400 focus:border-green-400 focus:outline-none"
+                                        }),
+                                        React.createElement('input', {
+                                            type: "email",
+                                            value: reservationForm.email,
+                                            onChange: (e) => setReservationForm({...reservationForm, email: e.target.value}),
+                                            placeholder: "Email *",
+                                            className: "w-full px-4 py-3 bg-black bg-opacity-40 border-2 border-blue-500 rounded-lg text-white placeholder-gray-400 focus:border-green-400 focus:outline-none"
+                                        }),
+                                        React.createElement('input', {
+                                            type: "tel",
+                                            value: reservationForm.phone,
+                                            onChange: (e) => setReservationForm({...reservationForm, phone: e.target.value}),
+                                            placeholder: "Téléphone (optionnel)",
+                                            className: "w-full px-4 py-3 bg-black bg-opacity-40 border-2 border-blue-500 rounded-lg text-white placeholder-gray-400 focus:border-green-400 focus:outline-none"
+                                        }),
+                                        React.createElement('textarea', {
+                                            value: reservationForm.message,
+                                            onChange: (e) => setReservationForm({...reservationForm, message: e.target.value}),
+                                            placeholder: "Message (optionnel)",
+                                            rows: "3",
+                                            className: "w-full px-4 py-3 bg-black bg-opacity-40 border-2 border-blue-500 rounded-lg text-white placeholder-gray-400 focus:border-green-400 focus:outline-none"
+                                        })
+                                    ),
+
+                                    React.createElement('div', { className: "bg-yellow-500 bg-opacity-20 border-2 border-yellow-400 rounded-xl p-4 mb-6" },
+                                        React.createElement('p', { className: "text-white font-semibold mb-2" }, "⚠️ Instructions de paiement:"),
+                                        React.createElement('ol', { className: "text-blue-200 text-sm space-y-1 list-decimal list-inside" },
+                                            React.createElement('li', null, "Cliquez sur Confirmer la réservation"),
+                                            React.createElement('li', null, "Envoyez votre paiement Interac à: ", 
+                                                React.createElement('span', { className: "font-bold text-green-400" }, "vootersbreak@gmail.com")
+                                            ),
+                                            React.createElement('li', null, "Votre réservation sera confirmée après réception du paiement")
+                                        )
+                                    ),
+
+                                    React.createElement('button', {
+                                        onClick: submitReservation,
+                                        disabled: selectedSpots.length === 0,
+                                        className: "w-full bg-gradient-to-r from-green-500 to-blue-500 text-white font-black text-xl py-4 rounded-xl hover:from-green-600 hover:to-blue-600 transition-all shadow-lg disabled:opacity-50 disabled:cursor-not-allowed"
+                                    }, "✉️ CONFIRMER LA RÉSERVATION")
+                                )
+                        )
+                    )
+                ),
+
+                // Footer
+                React.createElement('div', { className: "bg-black bg-opacity-30 backdrop-blur-sm border-t border-white border-opacity-20 mt-12" },
+                    React.createElement('div', { className: "max-w-7xl mx-auto px-4 py-6 text-center" },
+                        React.createElement('p', { className: "text-blue-200" }, "© 2024 Vooters Break - Tous droits réservés"),
+                        React.createElement('p', { className: "text-blue-300 text-sm mt-2" }, "Contact: vootersbreak@gmail.com")
+                    )
+                )
+            );
+        }
+
+        ReactDOM.render(
+            React.createElement(VootersBreakPublic),
+            document.getElementById('root')
+        );
+    </script>
+</body>
+</html>

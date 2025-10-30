@@ -1,0 +1,531 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Vooters Break - Admin</title>
+    <script crossorigin src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
+    <script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
+    <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+    <script src="https://cdn.tailwindcss.com"></script>
+    
+    <!-- Firebase -->
+    <script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-app-compat.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-database-compat.js"></script>
+</head>
+<body>
+    <div id="root"></div>
+
+    <script type="text/babel">
+        const { useState, useEffect } = React;
+
+        // ✅ VOS CREDENTIALS FIREBASE CONFIGURÉS (IDENTIQUES À index.html)
+        const firebaseConfig = {
+            apiKey: "AIzaSyBe3ftCo_LjKuKJinDWwYEH39lM8-RrN7I",
+            authDomain: "vooter-s-break-1cc7f.firebaseapp.com",
+            databaseURL: "https://vooter-s-break-1cc7f-default-rtdb.firebaseio.com",
+            projectId: "vooter-s-break-1cc7f",
+            storageBucket: "vooter-s-break-1cc7f.firebasestorage.app",
+            messagingSenderId: "110233483951",
+            appId: "1:110233483951:web:87372560112c986c1b725a"
+        };
+
+        if (!firebase.apps.length) {
+            firebase.initializeApp(firebaseConfig);
+        }
+        const database = firebase.database();
+
+        // ⚠️ CHANGEZ CE MOT DE PASSE MAINTENANT!
+        const ADMIN_PASSWORD = 'vooters2024';
+
+        const defaultTeams = {
+            hockey: ['Anaheim', 'Boston', 'Buffalo', 'Calgary', 'Carolina', 'Chicago', 'Colorado', 'Columbus', 'Dallas', 'Detroit', 'Edmonton', 'Florida', 'Los Angeles', 'Minnesota', 'Montréal', 'Nashville', 'New Jersey', 'NY Islanders', 'NY Rangers', 'Ottawa', 'Philadelphia', 'Pittsburgh', 'San Jose', 'Seattle', 'St. Louis', 'Tampa Bay', 'Toronto', 'Vancouver', 'Vegas', 'Washington', 'Winnipeg', 'Utah HC'],
+            baseball: ['Arizona', 'Atlanta', 'Baltimore', 'Boston', 'Chicago Cubs', 'Chicago White Sox', 'Cincinnati', 'Cleveland', 'Colorado', 'Detroit', 'Houston', 'Kansas City', 'LA Angels', 'LA Dodgers', 'Miami', 'Milwaukee', 'Minnesota', 'NY Mets', 'NY Yankees', 'Oakland', 'Philadelphia', 'Pittsburgh', 'San Diego', 'San Francisco', 'Seattle', 'St. Louis', 'Tampa Bay', 'Texas', 'Toronto', 'Washington'],
+            basketball: ['Atlanta', 'Boston', 'Brooklyn', 'Charlotte', 'Chicago', 'Cleveland', 'Dallas', 'Denver', 'Detroit', 'Golden State', 'Houston', 'Indiana', 'LA Clippers', 'LA Lakers', 'Memphis', 'Miami', 'Milwaukee', 'Minnesota', 'New Orleans', 'New York', 'Oklahoma City', 'Orlando', 'Philadelphia', 'Phoenix', 'Portland', 'Sacramento', 'San Antonio', 'Toronto', 'Utah', 'Washington'],
+            football: ['Arizona', 'Atlanta', 'Baltimore', 'Buffalo', 'Carolina', 'Chicago', 'Cincinnati', 'Cleveland', 'Dallas', 'Denver', 'Detroit', 'Green Bay', 'Houston', 'Indianapolis', 'Jacksonville', 'Kansas City', 'Las Vegas', 'LA Chargers', 'LA Rams', 'Miami', 'Minnesota', 'New England', 'New Orleans', 'NY Giants', 'NY Jets', 'Philadelphia', 'Pittsburgh', 'San Francisco', 'Seattle', 'Tampa Bay', 'Tennessee', 'Washington']
+        };
+
+        function VootersBreakAdmin() {
+            const [isAuthenticated, setIsAuthenticated] = useState(false);
+            const [password, setPassword] = useState('');
+            const [breaks, setBreaks] = useState([]);
+            const [pendingReservations, setPendingReservations] = useState([]);
+            const [activeTab, setActiveTab] = useState('breaks');
+            const [showAddBreak, setShowAddBreak] = useState(false);
+            
+            const [newBreak, setNewBreak] = useState({
+                title: '',
+                sport: 'hockey',
+                product: '',
+                boxCount: 1,
+                pricePerSpot: '',
+                totalSpots: 32,
+                date: '',
+                time: '',
+                status: 'upcoming',
+                description: ''
+            });
+
+            useEffect(() => {
+                if (isAuthenticated) {
+                    const breaksRef = database.ref('breaks');
+                    const reservationsRef = database.ref('reservations');
+                    
+                    breaksRef.on('value', (snapshot) => {
+                        const data = snapshot.val();
+                        if (data) {
+                            const breaksArray = Object.keys(data).map(key => ({
+                                ...data[key],
+                                id: key
+                            }));
+                            setBreaks(breaksArray);
+                        }
+                    });
+
+                    reservationsRef.on('value', (snapshot) => {
+                        const data = snapshot.val();
+                        if (data) {
+                            const reservationsArray = Object.keys(data).map(key => ({
+                                ...data[key],
+                                id: key
+                            })).filter(r => r.status === 'pending');
+                            setPendingReservations(reservationsArray);
+                        }
+                    });
+
+                    return () => {
+                        breaksRef.off();
+                        reservationsRef.off();
+                    };
+                }
+            }, [isAuthenticated]);
+
+            const handleLogin = () => {
+                if (password === ADMIN_PASSWORD) {
+                    setIsAuthenticated(true);
+                    setPassword('');
+                } else {
+                    alert('Mot de passe incorrect');
+                }
+            };
+
+            const addBreak = () => {
+                if (!newBreak.title || !newBreak.product || !newBreak.pricePerSpot) {
+                    alert('Veuillez remplir tous les champs requis');
+                    return;
+                }
+
+                const teams = defaultTeams[newBreak.sport]?.slice(0, newBreak.totalSpots) || [];
+                
+                const breakToAdd = {
+                    ...newBreak,
+                    createdAt: new Date().toISOString(),
+                    teams: teams,
+                    participants: {},
+                    randomizedTeams: []
+                };
+
+                database.ref('breaks').push(breakToAdd).then(() => {
+                    setNewBreak({
+                        title: '',
+                        sport: 'hockey',
+                        product: '',
+                        boxCount: 1,
+                        pricePerSpot: '',
+                        totalSpots: 32,
+                        date: '',
+                        time: '',
+                        status: 'upcoming',
+                        description: ''
+                    });
+                    setShowAddBreak(false);
+                    alert('Break créé avec succès!');
+                });
+            };
+
+            const deleteBreak = (id) => {
+                if (window.confirm('Voulez-vous vraiment supprimer ce break?')) {
+                    database.ref('breaks/' + id).remove();
+                }
+            };
+
+            const updateBreakStatus = (id, newStatus) => {
+                database.ref('breaks/' + id).update({ status: newStatus });
+            };
+
+            const generateAIDescription = (sport, product) => {
+                const descriptions = {
+                    hockey: [
+                        `Break de ${product}! Excellentes chances de hits avec des rookies et autographes possibles. Parfait pour les collectionneurs!`,
+                        `🔥 Break HOT! ${product} - Recherchez vos joueurs préférés et les cartes parallèles rares!`,
+                        `Super break! ${product} avec inserts premium et memorabilia!`
+                    ],
+                    baseball: [
+                        `⚾ Break MLB! ${product} - Chassez les rookies et autographes!`,
+                        `Break premium! ${product} avec parallèles et autographes potentiels!`
+                    ],
+                    basketball: [
+                        `🏀 Break NBA! ${product} - Rookies stars et cartes numérotées!`,
+                        `Break de feu! ${product} avec memorabilia et autographes!`
+                    ],
+                    football: [
+                        `🏈 Break NFL! ${product} - Rookies et autographes!`,
+                        `Super break! ${product} avec chances de hits incroyables!`
+                    ]
+                };
+
+                const sportDescriptions = descriptions[sport] || descriptions.hockey;
+                return sportDescriptions[Math.floor(Math.random() * sportDescriptions.length)];
+            };
+
+            const addAIDescription = (breakId, breakItem) => {
+                const aiDescription = generateAIDescription(breakItem.sport, breakItem.product);
+                database.ref('breaks/' + breakId).update({ description: aiDescription });
+                alert('Description IA générée!');
+            };
+
+            const approveReservation = (reservation) => {
+                const breakRef = database.ref('breaks/' + reservation.breakId);
+                
+                breakRef.once('value', (snapshot) => {
+                    const breakData = snapshot.val();
+                    const participants = breakData.participants || {};
+                    
+                    const newParticipantKey = database.ref().child('participants').push().key;
+                    participants[newParticipantKey] = {
+                        name: reservation.name,
+                        email: reservation.email,
+                        phone: reservation.phone,
+                        spots: reservation.spots,
+                        paymentStatus: 'paid'
+                    };
+
+                    breakRef.update({ participants: participants });
+                    database.ref('reservations/' + reservation.id).update({ status: 'approved' });
+                    
+                    alert('Réservation approuvée!');
+                });
+            };
+
+            const rejectReservation = (reservationId) => {
+                if (window.confirm('Voulez-vous vraiment refuser cette réservation?')) {
+                    database.ref('reservations/' + reservationId).update({ status: 'rejected' });
+                    alert('Réservation refusée');
+                }
+            };
+
+            const generateAnnouncementText = (breakItem) => {
+                const soldSpots = breakItem.participants ? Object.keys(breakItem.participants).reduce((sum, key) => {
+                    return sum + breakItem.participants[key].spots.length;
+                }, 0) : 0;
+                const availableSpots = breakItem.totalSpots - soldSpots;
+                
+                return `🏒 NOUVEAU BREAK! 🏒
+
+${breakItem.title}
+
+📦 Produit: ${breakItem.product}
+📊 Boîtes: ${breakItem.boxCount}
+💰 Prix: ${breakItem.pricePerSpot}$ par spot
+👥 Spots disponibles: ${availableSpots}/${breakItem.totalSpots}
+📅 Date: ${breakItem.date || 'À déterminer'}
+⏰ Heure: ${breakItem.time || 'À déterminer'}
+
+${breakItem.description || ''}
+
+🔥 Réservez sur: [VOTRE LIEN ICI]
+💳 Paiement: Interac à vootersbreak@gmail.com
+
+#${breakItem.sport} #cardsbreak #sportscards`;
+            };
+
+            const copyAnnouncement = (breakItem) => {
+                const text = generateAnnouncementText(breakItem);
+                navigator.clipboard.writeText(text);
+                alert('Annonce copiée! Prête à coller sur Facebook');
+            };
+
+            const stats = {
+                total: breaks.length,
+                upcoming: breaks.filter(b => b.status === 'upcoming').length,
+                live: breaks.filter(b => b.status === 'live').length,
+                completed: breaks.filter(b => b.status === 'completed').length,
+                pending: pendingReservations.length
+            };
+
+            // Login Screen
+            if (!isAuthenticated) {
+                return React.createElement('div', {
+                    className: "min-h-screen bg-gradient-to-br from-gray-900 to-gray-800 flex items-center justify-center p-4"
+                },
+                    React.createElement('div', {
+                        className: "bg-white rounded-2xl shadow-2xl p-8 max-w-md w-full"
+                    },
+                        React.createElement('div', { className: "text-center mb-8" },
+                            React.createElement('div', { className: "text-6xl mb-4" }, "🔒"),
+                            React.createElement('h1', { className: "text-3xl font-bold text-gray-800 mb-2" }, "Admin Login"),
+                            React.createElement('p', { className: "text-gray-600" }, "Vooters Break - Panneau d'administration")
+                        ),
+                        React.createElement('div', { className: "space-y-4" },
+                            React.createElement('input', {
+                                type: "password",
+                                value: password,
+                                onChange: (e) => setPassword(e.target.value),
+                                onKeyPress: (e) => e.key === 'Enter' && handleLogin(),
+                                placeholder: "Mot de passe",
+                                className: "w-full px-4 py-3 border-2 border-gray-300 rounded-lg focus:border-indigo-500 focus:outline-none"
+                            }),
+                            React.createElement('button', {
+                                onClick: handleLogin,
+                                className: "w-full bg-gradient-to-r from-indigo-600 to-purple-600 text-white py-3 rounded-lg font-semibold hover:from-indigo-700 hover:to-purple-700 transition-all"
+                            }, "Se connecter")
+                        )
+                    )
+                );
+            }
+
+            // Admin Dashboard
+            return React.createElement('div', {
+                className: "min-h-screen bg-gradient-to-br from-gray-50 to-gray-100"
+            },
+                React.createElement('div', { className: "max-w-7xl mx-auto p-4 sm:p-6" },
+                    // Header
+                    React.createElement('div', { className: "flex items-center justify-between mb-8 pt-6" },
+                        React.createElement('div', {},
+                            React.createElement('h1', { className: "text-4xl font-bold text-gray-800 mb-2" }, "Admin - Vooters Break"),
+                            React.createElement('p', { className: "text-gray-600" }, "Panneau de gestion")
+                        ),
+                        React.createElement('div', { className: "flex gap-3" },
+                            React.createElement('button', {
+                                onClick: () => setShowAddBreak(!showAddBreak),
+                                className: "flex items-center gap-2 bg-gradient-to-r from-indigo-600 to-purple-600 text-white px-6 py-3 rounded-lg font-semibold hover:shadow-lg transition-all"
+                            }, "+ Nouveau Break"),
+                            React.createElement('button', {
+                                onClick: () => setIsAuthenticated(false),
+                                className: "bg-red-600 text-white px-4 py-3 rounded-lg font-semibold hover:bg-red-700 transition-all"
+                            }, "Déconnexion")
+                        )
+                    ),
+
+                    // Stats Cards
+                    React.createElement('div', { className: "grid grid-cols-2 sm:grid-cols-5 gap-4 mb-6" },
+                        [
+                            { label: "Total", value: stats.total, color: "gray" },
+                            { label: "À venir", value: stats.upcoming, color: "blue" },
+                            { label: "En Direct", value: stats.live, color: "red" },
+                            { label: "Complétés", value: stats.completed, color: "gray" },
+                            { label: "Réservations", value: stats.pending, color: "orange", hasNotif: stats.pending > 0 }
+                        ].map((stat, idx) =>
+                            React.createElement('div', {
+                                key: idx,
+                                className: "bg-white rounded-xl shadow-md p-4 relative"
+                            },
+                                React.createElement('p', { className: "text-sm text-gray-600 mb-2" }, stat.label),
+                                React.createElement('p', {
+                                    className: `text-2xl font-bold text-${stat.color}-600`
+                                }, stat.value),
+                                stat.hasNotif && React.createElement('span', {
+                                    className: "absolute top-2 right-2 w-3 h-3 bg-red-500 rounded-full animate-pulse"
+                                })
+                            )
+                        )
+                    ),
+
+                    // Tabs
+                    React.createElement('div', { className: "flex gap-2 mb-6 bg-white rounded-lg p-1 shadow-sm" },
+                        React.createElement('button', {
+                            onClick: () => setActiveTab('breaks'),
+                            className: `flex-1 py-3 rounded-md font-medium transition-all ${activeTab === 'breaks' ? 'bg-indigo-600 text-white' : 'text-gray-600 hover:bg-gray-50'}`
+                        }, "📦 Breaks"),
+                        React.createElement('button', {
+                            onClick: () => setActiveTab('reservations'),
+                            className: `flex-1 py-3 rounded-md font-medium transition-all relative ${activeTab === 'reservations' ? 'bg-indigo-600 text-white' : 'text-gray-600 hover:bg-gray-50'}`
+                        },
+                            `🔔 Réservations (${stats.pending})`,
+                            stats.pending > 0 && React.createElement('span', {
+                                className: "absolute top-2 right-2 w-2 h-2 bg-red-500 rounded-full animate-pulse"
+                            })
+                        )
+                    ),
+
+                    // Add Break Form
+                    showAddBreak && activeTab === 'breaks' && React.createElement('div', {
+                        className: "bg-white rounded-xl shadow-lg p-6 mb-6"
+                    },
+                        React.createElement('h2', { className: "text-2xl font-bold mb-6" }, "Créer un nouveau break"),
+                        React.createElement('div', { className: "grid sm:grid-cols-2 gap-4 mb-4" },
+                            React.createElement('input', {
+                                type: "text",
+                                value: newBreak.title,
+                                onChange: (e) => setNewBreak({...newBreak, title: e.target.value}),
+                                placeholder: "Titre du break *",
+                                className: "px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500"
+                            }),
+                            React.createElement('select', {
+                                value: newBreak.sport,
+                                onChange: (e) => setNewBreak({...newBreak, sport: e.target.value}),
+                                className: "px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500"
+                            },
+                                React.createElement('option', { value: "hockey" }, "Hockey"),
+                                React.createElement('option', { value: "baseball" }, "Baseball"),
+                                React.createElement('option', { value: "basketball" }, "Basketball"),
+                                React.createElement('option', { value: "football" }, "Football")
+                            ),
+                            React.createElement('input', {
+                                type: "text",
+                                value: newBreak.product,
+                                onChange: (e) => setNewBreak({...newBreak, product: e.target.value}),
+                                placeholder: "Produit (ex: Upper Deck Series 1) *",
+                                className: "px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500"
+                            }),
+                            React.createElement('input', {
+                                type: "number",
+                                value: newBreak.boxCount,
+                                onChange: (e) => setNewBreak({...newBreak, boxCount: parseInt(e.target.value) || 1}),
+                                placeholder: "Nombre de boîtes",
+                                min: "1",
+                                className: "px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500"
+                            }),
+                            React.createElement('input', {
+                                type: "number",
+                                value: newBreak.pricePerSpot,
+                                onChange: (e) => setNewBreak({...newBreak, pricePerSpot: e.target.value}),
+                                placeholder: "Prix par spot (ex: 25) *",
+                                className: "px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500"
+                            }),
+                            React.createElement('input', {
+                                type: "number",
+                                value: newBreak.totalSpots,
+                                onChange: (e) => setNewBreak({...newBreak, totalSpots: parseInt(e.target.value) || 32}),
+                                placeholder: "Nombre de spots",
+                                min: "1",
+                                max: "32",
+                                className: "px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500"
+                            }),
+                            React.createElement('input', {
+                                type: "date",
+                                value: newBreak.date,
+                                onChange: (e) => setNewBreak({...newBreak, date: e.target.value}),
+                                className: "px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500"
+                            }),
+                            React.createElement('input', {
+                                type: "time",
+                                value: newBreak.time,
+                                onChange: (e) => setNewBreak({...newBreak, time: e.target.value}),
+                                className: "px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500"
+                            })
+                        ),
+                        React.createElement('textarea', {
+                            value: newBreak.description,
+                            onChange: (e) => setNewBreak({...newBreak, description: e.target.value}),
+                            placeholder: "Description (ou cliquez sur 'Description IA' après création)",
+                            rows: "3",
+                            className: "w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 mb-4"
+                        }),
+                        React.createElement('div', { className: "flex gap-3" },
+                            React.createElement('button', {
+                                onClick: addBreak,
+                                className: "flex-1 bg-indigo-600 text-white py-3 rounded-lg font-semibold hover:bg-indigo-700"
+                            }, "✅ Créer le break"),
+                            React.createElement('button', {
+                                onClick: () => setShowAddBreak(false),
+                                className: "px-6 py-3 border-2 border-gray-300 rounded-lg font-semibold hover:bg-gray-50"
+                            }, "Annuler")
+                        )
+                    ),
+
+                    // Content
+                    activeTab === 'breaks' ?
+                        // Breaks List
+                        React.createElement('div', { className: "space-y-4" },
+                            breaks.length === 0 ?
+                                React.createElement('div', { className: "bg-white rounded-xl shadow-md p-12 text-center" },
+                                    React.createElement('div', { className: "text-6xl mb-4" }, "📦"),
+                                    React.createElement('p', { className: "text-gray-500 text-lg" }, "Aucun break créé"),
+                                    React.createElement('p', { className: "text-gray-400 text-sm mt-2" }, "Cliquez sur 'Nouveau Break' pour commencer!")
+                                )
+                            :
+                                breaks.map(breakItem => React.createElement('div', {
+                                    key: breakItem.id,
+                                    className: "bg-white rounded-xl shadow-md p-6"
+                                },
+                                    React.createElement('div', { className: "flex items-start justify-between mb-4" },
+                                        React.createElement('div', {},
+                                            React.createElement('h3', { className: "text-xl font-bold text-gray-800 mb-1" }, breakItem.title),
+                                            React.createElement('p', { className: "text-gray-600" }, breakItem.product),
+                                            breakItem.description && React.createElement('p', { className: "text-sm text-gray-500 italic mt-1" }, breakItem.description)
+                                        ),
+                                        React.createElement('div', { className: "flex gap-2" },
+                                            React.createElement('span', {
+                                                className: `px-3 py-1 rounded-full text-xs font-semibold ${
+                                                    breakItem.status === 'live' ? 'bg-red-100 text-red-700' :
+                                                    breakItem.status === 'upcoming' ? 'bg-blue-100 text-blue-700' :
+                                                    'bg-gray-100 text-gray-700'
+                                                }`
+                                            }, breakItem.status === 'live' ? '🔴 EN DIRECT' : 
+                                               breakItem.status === 'upcoming' ? '📅 À VENIR' : '✅ COMPLÉTÉ'),
+                                            React.createElement('button', {
+                                                onClick: () => deleteBreak(breakItem.id),
+                                                className: "text-red-600 hover:bg-red-50 px-2 rounded"
+                                            }, "🗑️")
+                                        )
+                                    ),
+                                    React.createElement('div', { className: "grid grid-cols-2 sm:grid-cols-4 gap-3 mb-4 text-sm" },
+                                        React.createElement('div', {},
+                                            React.createElement('p', { className: "text-gray-600" }, "Prix/spot"),
+                                            React.createElement('p', { className: "font-semibold text-lg" }, breakItem.pricePerSpot + "$")
+                                        ),
+                                        React.createElement('div', {},
+                                            React.createElement('p', { className: "text-gray-600" }, "Spots"),
+                                            React.createElement('p', { className: "font-semibold text-lg" }, breakItem.totalSpots)
+                                        ),
+                                        React.createElement('div', {},
+                                            React.createElement('p', { className: "text-gray-600" }, "Date"),
+                                            React.createElement('p', { className: "font-semibold" }, breakItem.date || 'TBD')
+                                        ),
+                                        React.createElement('div', {},
+                                            React.createElement('p', { className: "text-gray-600" }, "Participants"),
+                                            React.createElement('p', { className: "font-semibold text-lg" }, 
+                                                Object.keys(breakItem.participants || {}).length
+                                            )
+                                        )
+                                    ),
+                                    React.createElement('div', { className: "flex flex-wrap gap-2" },
+                                        React.createElement('button', {
+                                            onClick: () => copyAnnouncement(breakItem),
+                                            className: "px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 text-sm font-medium"
+                                        }, "📢 Copier annonce"),
+                                        React.createElement('button', {
+                                            onClick: () => addAIDescription(breakItem.id, breakItem),
+                                            className: "px-4 py-2 bg-purple-600 text-white rounded-lg hover:bg-purple-700 text-sm font-medium"
+                                        }, "✨ Description IA"),
+                                        React.createElement('button', {
+                                            onClick: () => updateBreakStatus(breakItem.id, 'live'),
+                                            className: "px-4 py-2 bg-red-600 text-white rounded-lg hover:bg-red-700 text-sm font-medium",
+                                            disabled: breakItem.status === 'live'
+                                        }, "🔴 Passer LIVE"),
+                                        React.createElement('button', {
+                                            onClick: () => updateBreakStatus(breakItem.id, 'completed'),
+                                            className: "px-4 py-2 bg-gray-600 text-white rounded-lg hover:bg-gray-700 text-sm font-medium"
+                                        }, "✅ Terminer")
+                                    )
+                                ))
+                        )
+                    :
+                        // Reservations List
+                        React.createElement('div', { className: "space-y-4" },
+                            pendingReservations.length === 0 ?
+                                React.createElement('div', { className: "bg-white rounded-xl shadow-md p-12 text-center" },
+                                    React.createElement('div', { className: "text-6xl mb-4" }, "🔔"),
+                                    React.createElement('p', { className: "text-gray-500 text-lg" }, "Aucune réservation en attente"),
+                                    React.createElement('p', { className: "text-gray-400 text-sm mt-2" }, "Les nouvelles réservations apparaîtront ici")
+                                )
+                            :
+                                pendingReservations.map(reservation => React.createElement('div', {
+                                    key: reservation.id,
+                                    className: "bg-white rounded-xl shadow-md p-6 border-2 border-orange-200"
+                                },
+                                    React.createElement('div', { className: "flex items-start justify-between mb-4" },
+                                        React.createElement('div', {},
+                                            React.createElement('h3', { className: "text-xl font-bold text-gray-800" }, reservation.name),
+                                            React.createElement('p', { className: "text
