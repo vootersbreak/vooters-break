@@ -1,0 +1,302 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Mon Espace - Vooters Break</title>
+    <script crossorigin src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
+    <script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
+    <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+    <script src="https://cdn.tailwindcss.com"></script>
+    
+    <script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-app-compat.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-database-compat.js"></script>
+    
+    <style>
+        .bg-hockey {
+            background-image: url('https://i.imgur.com/3NdfuSl.jpeg');
+            background-size: cover;
+            background-position: center;
+            background-attachment: fixed;
+        }
+    </style>
+</head>
+<body>
+    <div id="root"></div>
+
+    <script type="text/babel">
+        const { useState, useEffect } = React;
+
+        const firebaseConfig = {
+            apiKey: "AIzaSyBe3ftCo_LjKuKJinDWwYEH39lM8-RrN7I",
+            authDomain: "vooter-s-break-1cc7f.firebaseapp.com",
+            databaseURL: "https://vooter-s-break-1cc7f-default-rtdb.firebaseio.com",
+            projectId: "vooter-s-break-1cc7f",
+            storageBucket: "vooter-s-break-1cc7f.firebasestorage.app",
+            messagingSenderId: "110233483951",
+            appId: "1:110233483951:web:87372560112c986c1b725a"
+        };
+
+        if (!firebase.apps.length) {
+            firebase.initializeApp(firebaseConfig);
+        }
+        const database = firebase.database();
+
+        function ClientPortal() {
+            const [email, setEmail] = useState('');
+            const [isLoggedIn, setIsLoggedIn] = useState(false);
+            const [myReservations, setMyReservations] = useState([]);
+            const [breaks, setBreaks] = useState([]);
+            const [loading, setLoading] = useState(false);
+
+            const handleLogin = () => {
+                const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+                if (!emailRegex.test(email)) {
+                    alert('Veuillez entrer une adresse email valide');
+                    return;
+                }
+
+                setLoading(true);
+                localStorage.setItem('clientEmail', email);
+                setIsLoggedIn(true);
+                loadMyData(email);
+            };
+
+            const loadMyData = (userEmail) => {
+                // Charger tous les breaks
+                database.ref('breaks').on('value', (snapshot) => {
+                    const breaksData = snapshot.val();
+                    if (breaksData) {
+                        const breaksArray = Object.keys(breaksData).map(key => ({
+                            ...breaksData[key],
+                            id: key
+                        }));
+                        setBreaks(breaksArray);
+                        
+                        // Trouver mes réservations
+                        const myRes = [];
+                        breaksArray.forEach(breakItem => {
+                            if (breakItem.participants) {
+                                Object.entries(breakItem.participants).forEach(([key, participant]) => {
+                                    if (participant.email && participant.email.toLowerCase() === userEmail.toLowerCase()) {
+                                        myRes.push({
+                                            breakId: breakItem.id,
+                                            breakTitle: breakItem.title,
+                                            product: breakItem.product,
+                                            date: breakItem.date,
+                                            time: breakItem.time,
+                                            status: breakItem.status,
+                                            spots: participant.spots,
+                                            pricePerSpot: breakItem.pricePerSpot,
+                                            totalAmount: participant.spots.length * parseFloat(breakItem.pricePerSpot),
+                                            paymentStatus: participant.paymentStatus || 'paid',
+                                            participantName: participant.name
+                                        });
+                                    }
+                                });
+                            }
+                        });
+                        
+                        setMyReservations(myRes);
+                        setLoading(false);
+                    }
+                });
+            };
+
+            useEffect(() => {
+                const savedEmail = localStorage.getItem('clientEmail');
+                if (savedEmail) {
+                    setEmail(savedEmail);
+                    setIsLoggedIn(true);
+                    loadMyData(savedEmail);
+                }
+            }, []);
+
+            const handleLogout = () => {
+                localStorage.removeItem('clientEmail');
+                setIsLoggedIn(false);
+                setEmail('');
+                setMyReservations([]);
+            };
+
+            const totalToPay = myReservations
+                .filter(r => r.paymentStatus === 'deferred' || r.paymentStatus === 'pending')
+                .reduce((sum, r) => sum + r.totalAmount, 0);
+
+            const totalPaid = myReservations
+                .filter(r => r.paymentStatus === 'paid')
+                .reduce((sum, r) => sum + r.totalAmount, 0);
+
+            if (!isLoggedIn) {
+                return React.createElement('div', { className: "min-h-screen bg-hockey" },
+                    React.createElement('div', { className: "min-h-screen bg-black bg-opacity-60 flex items-center justify-center p-4" },
+                        React.createElement('div', { className: "bg-white rounded-2xl shadow-2xl p-8 max-w-md w-full" },
+                            React.createElement('div', { className: "text-center mb-8" },
+                                React.createElement('img', {
+                                    src: "https://i.imgur.com/cBft84M.jpeg",
+                                    alt: "Vooters Break",
+                                    className: "max-w-[200px] mx-auto mb-4"
+                                }),
+                                React.createElement('h1', { className: "text-3xl font-bold text-gray-800 mb-2" }, "Mon Espace Client"),
+                                React.createElement('p', { className: "text-gray-600" }, "Connectez-vous avec votre email")
+                            ),
+                            React.createElement('div', { className: "space-y-4" },
+                                React.createElement('input', {
+                                    type: "email",
+                                    value: email,
+                                    onChange: (e) => setEmail(e.target.value),
+                                    onKeyPress: (e) => e.key === 'Enter' && handleLogin(),
+                                    placeholder: "votre@email.com",
+                                    className: "w-full px-4 py-3 border-2 border-gray-300 rounded-lg focus:border-red-500 focus:outline-none"
+                                }),
+                                React.createElement('button', {
+                                    onClick: handleLogin,
+                                    className: "w-full bg-gradient-to-r from-red-600 to-red-500 text-white py-3 rounded-lg font-semibold hover:from-red-700 hover:to-red-600"
+                                }, "Se connecter")
+                            ),
+                            React.createElement('div', { className: "mt-6 pt-6 border-t text-center" },
+                                React.createElement('a', {
+                                    href: "/",
+                                    className: "text-red-600 hover:text-red-700 font-medium"
+                                }, "← Retour au site")
+                            )
+                        )
+                    )
+                );
+            }
+
+            if (loading) {
+                return React.createElement('div', { className: "min-h-screen bg-hockey" },
+                    React.createElement('div', { className: "min-h-screen bg-black bg-opacity-60 flex items-center justify-center" },
+                        React.createElement('div', { className: "text-center bg-black bg-opacity-80 p-8 rounded-2xl" },
+                            React.createElement('div', { className: "w-16 h-16 border-4 border-white border-t-transparent rounded-full animate-spin mx-auto mb-4" }),
+                            React.createElement('p', { className: "text-white text-xl font-semibold" }, "Chargement...")
+                        )
+                    )
+                );
+            }
+
+            return React.createElement('div', { className: "min-h-screen bg-hockey" },
+                React.createElement('div', { className: "min-h-screen bg-black bg-opacity-50" },
+                    React.createElement('div', { className: "bg-black bg-opacity-80 backdrop-blur-sm border-b border-red-500" },
+                        React.createElement('div', { className: "max-w-7xl mx-auto px-4 py-6" },
+                            React.createElement('div', { className: "flex items-center justify-between" },
+                                React.createElement('div', {},
+                                    React.createElement('h1', { className: "text-3xl font-bold text-white mb-1" }, "Mon Espace"),
+                                    React.createElement('p', { className: "text-red-400" }, email)
+                                ),
+                                React.createElement('button', {
+                                    onClick: handleLogout,
+                                    className: "bg-red-600 text-white px-4 py-2 rounded-lg hover:bg-red-700"
+                                }, "Déconnexion")
+                            )
+                        )
+                    ),
+
+                    React.createElement('div', { className: "max-w-7xl mx-auto px-4 py-8" },
+                        React.createElement('div', { className: "grid sm:grid-cols-3 gap-4 mb-8" },
+                            React.createElement('div', { className: "bg-black bg-opacity-80 rounded-xl p-6 border-2 border-red-500" },
+                                React.createElement('p', { className: "text-red-400 text-sm mb-2" }, "Total des réservations"),
+                                React.createElement('p', { className: "text-4xl font-bold text-white" }, myReservations.length)
+                            ),
+                            React.createElement('div', { className: "bg-black bg-opacity-80 rounded-xl p-6 border-2 border-green-500" },
+                                React.createElement('p', { className: "text-green-400 text-sm mb-2" }, "Déjà payé"),
+                                React.createElement('p', { className: "text-4xl font-bold text-white" }, totalPaid.toFixed(2) + "$")
+                            ),
+                            React.createElement('div', { className: "bg-black bg-opacity-80 rounded-xl p-6 border-2 border-orange-500" },
+                                React.createElement('p', { className: "text-orange-400 text-sm mb-2" }, "À payer"),
+                                React.createElement('p', { className: "text-4xl font-bold text-white" }, totalToPay.toFixed(2) + "$")
+                            )
+                        ),
+
+                        myReservations.length === 0 ?
+                            React.createElement('div', { className: "bg-black bg-opacity-80 rounded-xl p-12 text-center border-2 border-red-500" },
+                                React.createElement('div', { className: "text-6xl mb-4" }, "📦"),
+                                React.createElement('h2', { className: "text-2xl font-bold text-white mb-2" }, "Aucune réservation"),
+                                React.createElement('p', { className: "text-gray-400" }, "Vous n'avez pas encore de réservation"),
+                                React.createElement('a', {
+                                    href: "/",
+                                    className: "inline-block mt-4 bg-red-600 text-white px-6 py-3 rounded-lg font-semibold hover:bg-red-700"
+                                }, "Voir les breaks disponibles")
+                            )
+                        :
+                            React.createElement('div', { className: "space-y-4" },
+                                React.createElement('h2', { className: "text-2xl font-bold text-white mb-4" }, "Mes réservations"),
+                                myReservations.map((reservation, idx) =>
+                                    React.createElement('div', {
+                                        key: idx,
+                                        className: "bg-black bg-opacity-80 rounded-xl p-6 border-2 border-red-500"
+                                    },
+                                        React.createElement('div', { className: "flex items-start justify-between mb-4" },
+                                            React.createElement('div', {},
+                                                React.createElement('h3', { className: "text-2xl font-bold text-white mb-1" }, reservation.breakTitle),
+                                                React.createElement('p', { className: "text-red-300 mb-2" }, reservation.product),
+                                                reservation.date && React.createElement('p', { className: "text-gray-400 text-sm" },
+                                                    `📅 ${reservation.date}` + (reservation.time ? ` à ${reservation.time}` : '')
+                                                )
+                                            ),
+                                            React.createElement('span', {
+                                                className: `px-3 py-1 rounded-full text-sm font-semibold ${
+                                                    reservation.status === 'live' ? 'bg-red-500 text-white' :
+                                                    reservation.status === 'upcoming' ? 'bg-blue-500 text-white' :
+                                                    'bg-gray-500 text-white'
+                                                }`
+                                            }, reservation.status === 'live' ? 'EN DIRECT' :
+                                               reservation.status === 'upcoming' ? 'À VENIR' : 'COMPLÉTÉ')
+                                        ),
+
+                                        React.createElement('div', { className: "grid sm:grid-cols-2 gap-4 mb-4" },
+                                            React.createElement('div', { className: "bg-red-900 bg-opacity-40 rounded-lg p-4 border border-red-500" },
+                                                React.createElement('p', { className: "text-red-300 text-sm mb-1" }, "Mes spots"),
+                                                React.createElement('p', { className: "text-xl font-bold text-white" }, reservation.spots.join(', '))
+                                            ),
+                                            React.createElement('div', { className: "bg-red-900 bg-opacity-40 rounded-lg p-4 border border-red-500" },
+                                                React.createElement('p', { className: "text-red-300 text-sm mb-1" }, "Montant"),
+                                                React.createElement('p', { className: "text-xl font-bold text-white" },
+                                                    `${reservation.spots.length} × ${reservation.pricePerSpot}$ = ${reservation.totalAmount.toFixed(2)}$`
+                                                )
+                                            )
+                                        ),
+
+                                        React.createElement('div', { className: "flex items-center justify-between" },
+                                            React.createElement('span', {
+                                                className: `px-4 py-2 rounded-lg font-semibold ${
+                                                    reservation.paymentStatus === 'paid' ? 'bg-green-600 text-white' :
+                                                    reservation.paymentStatus === 'deferred' ? 'bg-orange-600 text-white' :
+                                                    'bg-yellow-600 text-white'
+                                                }`
+                                            },
+                                                reservation.paymentStatus === 'paid' ? '✅ Payé' :
+                                                reservation.paymentStatus === 'deferred' ? '⏳ Paiement reporté' :
+                                                '⏱️ En attente de paiement'
+                                            ),
+                                            (reservation.paymentStatus === 'deferred' || reservation.paymentStatus === 'pending') &&
+                                                React.createElement('p', { className: "text-sm text-orange-400" },
+                                                    "Interac: vootersbreak@gmail.com"
+                                                )
+                                        )
+                                    )
+                                )
+                            )
+                    ),
+
+                    React.createElement('div', { className: "bg-black bg-opacity-80 border-t border-red-500 mt-12" },
+                        React.createElement('div', { className: "max-w-7xl mx-auto px-4 py-6 text-center" },
+                            React.createElement('p', { className: "text-gray-400" }, "© 2024 Vooters Break"),
+                            React.createElement('a', {
+                                href: "/",
+                                className: "text-red-400 hover:text-red-300 text-sm mt-2 inline-block"
+                            }, "Retour au site")
+                        )
+                    )
+                )
+            );
+        }
+
+        ReactDOM.render(
+            React.createElement(ClientPortal),
+            document.getElementById('root')
+        );
+    </script>
+</body>
+</html>
