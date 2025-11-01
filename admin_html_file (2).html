@@ -9,7 +9,6 @@
     <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
     <script src="https://cdn.tailwindcss.com"></script>
     
-    <!-- Firebase -->
     <script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-app-compat.js"></script>
     <script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-database-compat.js"></script>
 </head>
@@ -19,7 +18,6 @@
     <script type="text/babel">
         const { useState, useEffect } = React;
 
-        // ✅ VOS CREDENTIALS FIREBASE CONFIGURÉS (IDENTIQUES À index.html)
         const firebaseConfig = {
             apiKey: "AIzaSyBe3ftCo_LjKuKJinDWwYEH39lM8-RrN7I",
             authDomain: "vooter-s-break-1cc7f.firebaseapp.com",
@@ -35,15 +33,7 @@
         }
         const database = firebase.database();
 
-        // ⚠️ CHANGEZ CE MOT DE PASSE MAINTENANT!
         const ADMIN_PASSWORD = 'vooters2024';
-
-        const defaultTeams = {
-            hockey: ['Anaheim', 'Boston', 'Buffalo', 'Calgary', 'Carolina', 'Chicago', 'Colorado', 'Columbus', 'Dallas', 'Detroit', 'Edmonton', 'Florida', 'Los Angeles', 'Minnesota', 'Montréal', 'Nashville', 'New Jersey', 'NY Islanders', 'NY Rangers', 'Ottawa', 'Philadelphia', 'Pittsburgh', 'San Jose', 'Seattle', 'St. Louis', 'Tampa Bay', 'Toronto', 'Vancouver', 'Vegas', 'Washington', 'Winnipeg', 'Utah HC'],
-            baseball: ['Arizona', 'Atlanta', 'Baltimore', 'Boston', 'Chicago Cubs', 'Chicago White Sox', 'Cincinnati', 'Cleveland', 'Colorado', 'Detroit', 'Houston', 'Kansas City', 'LA Angels', 'LA Dodgers', 'Miami', 'Milwaukee', 'Minnesota', 'NY Mets', 'NY Yankees', 'Oakland', 'Philadelphia', 'Pittsburgh', 'San Diego', 'San Francisco', 'Seattle', 'St. Louis', 'Tampa Bay', 'Texas', 'Toronto', 'Washington'],
-            basketball: ['Atlanta', 'Boston', 'Brooklyn', 'Charlotte', 'Chicago', 'Cleveland', 'Dallas', 'Denver', 'Detroit', 'Golden State', 'Houston', 'Indiana', 'LA Clippers', 'LA Lakers', 'Memphis', 'Miami', 'Milwaukee', 'Minnesota', 'New Orleans', 'New York', 'Oklahoma City', 'Orlando', 'Philadelphia', 'Phoenix', 'Portland', 'Sacramento', 'San Antonio', 'Toronto', 'Utah', 'Washington'],
-            football: ['Arizona', 'Atlanta', 'Baltimore', 'Buffalo', 'Carolina', 'Chicago', 'Cincinnati', 'Cleveland', 'Dallas', 'Denver', 'Detroit', 'Green Bay', 'Houston', 'Indianapolis', 'Jacksonville', 'Kansas City', 'Las Vegas', 'LA Chargers', 'LA Rams', 'Miami', 'Minnesota', 'New England', 'New Orleans', 'NY Giants', 'NY Jets', 'Philadelphia', 'Pittsburgh', 'San Francisco', 'Seattle', 'Tampa Bay', 'Tennessee', 'Washington']
-        };
 
         function VootersBreakAdmin() {
             const [isAuthenticated, setIsAuthenticated] = useState(false);
@@ -52,6 +42,11 @@
             const [pendingReservations, setPendingReservations] = useState([]);
             const [activeTab, setActiveTab] = useState('breaks');
             const [showAddBreak, setShowAddBreak] = useState(false);
+            const [editingBreak, setEditingBreak] = useState(null);
+            const [showMergeModal, setShowMergeModal] = useState(null);
+            const [mergeSelection, setMergeSelection] = useState([]);
+            const [newMergedName, setNewMergedName] = useState('');
+            const [showManualSpots, setShowManualSpots] = useState(null);
             
             const [newBreak, setNewBreak] = useState({
                 title: '',
@@ -64,6 +59,12 @@
                 time: '',
                 status: 'upcoming',
                 description: ''
+            });
+
+            const [manualSpotForm, setManualSpotForm] = useState({
+                name: '',
+                spots: '',
+                paymentStatus: 'deferred'
             });
 
             useEffect(() => {
@@ -115,14 +116,13 @@
                     return;
                 }
 
-                const teams = defaultTeams[newBreak.sport]?.slice(0, newBreak.totalSpots) || [];
-                
                 const breakToAdd = {
                     ...newBreak,
                     createdAt: new Date().toISOString(),
-                    teams: teams,
+                    teams: [],
                     participants: {},
-                    randomizedTeams: []
+                    randomizedTeams: [],
+                    pendingSpots: {}
                 };
 
                 database.ref('breaks').push(breakToAdd).then(() => {
@@ -143,6 +143,79 @@
                 });
             };
 
+            const startEditBreak = (breakItem) => {
+                setEditingBreak({
+                    id: breakItem.id,
+                    title: breakItem.title,
+                    sport: breakItem.sport,
+                    product: breakItem.product,
+                    boxCount: breakItem.boxCount,
+                    pricePerSpot: breakItem.pricePerSpot,
+                    totalSpots: breakItem.totalSpots,
+                    date: breakItem.date || '',
+                    time: breakItem.time || '',
+                    description: breakItem.description || ''
+                });
+            };
+
+            const saveEditBreak = () => {
+                if (!editingBreak.title || !editingBreak.product || !editingBreak.pricePerSpot) {
+                    alert('Veuillez remplir tous les champs requis');
+                    return;
+                }
+
+                database.ref('breaks/' + editingBreak.id).update({
+                    title: editingBreak.title,
+                    sport: editingBreak.sport,
+                    product: editingBreak.product,
+                    boxCount: editingBreak.boxCount,
+                    pricePerSpot: editingBreak.pricePerSpot,
+                    totalSpots: editingBreak.totalSpots,
+                    date: editingBreak.date,
+                    time: editingBreak.time,
+                    description: editingBreak.description
+                }).then(() => {
+                    setEditingBreak(null);
+                    alert('Break modifié avec succès!');
+                });
+            };
+
+            const addManualSpots = () => {
+                if (!manualSpotForm.name || !manualSpotForm.spots) {
+                    alert('Veuillez remplir le nom et les spots');
+                    return;
+                }
+
+                const spotNumbers = manualSpotForm.spots.split(',').map(s => parseInt(s.trim())).filter(s => !isNaN(s));
+                const breakRef = database.ref('breaks/' + showManualSpots.id);
+                
+                breakRef.once('value', (snapshot) => {
+                    const breakData = snapshot.val();
+                    const participants = breakData.participants || {};
+                    
+                    const newParticipantKey = database.ref().child('participants').push().key;
+                    participants[newParticipantKey] = {
+                        name: manualSpotForm.name,
+                        spots: spotNumbers,
+                        paymentStatus: manualSpotForm.paymentStatus,
+                        addedManually: true,
+                        timestamp: new Date().toISOString()
+                    };
+
+                    breakRef.update({ participants: participants }).then(() => {
+                        setManualSpotForm({ name: '', spots: '', paymentStatus: 'deferred' });
+                        setShowManualSpots(null);
+                        alert('Spots attribués avec succès!');
+                    });
+                });
+            };
+
+            const updatePaymentStatus = (breakId, participantId, newStatus) => {
+                database.ref(`breaks/${breakId}/participants/${participantId}`).update({
+                    paymentStatus: newStatus
+                });
+            };
+
             const deleteBreak = (id) => {
                 if (window.confirm('Voulez-vous vraiment supprimer ce break?')) {
                     database.ref('breaks/' + id).remove();
@@ -156,22 +229,12 @@
             const generateAIDescription = (sport, product) => {
                 const descriptions = {
                     hockey: [
-                        `Break de ${product}! Excellentes chances de hits avec des rookies et autographes possibles. Parfait pour les collectionneurs!`,
-                        `🔥 Break HOT! ${product} - Recherchez vos joueurs préférés et les cartes parallèles rares!`,
-                        `Super break! ${product} avec inserts premium et memorabilia!`
+                        `Break de ${product}! Excellentes chances de hits avec des rookies et autographes possibles!`,
+                        `🔥 Break HOT! ${product} - Recherchez vos joueurs préférés et les cartes parallèles rares!`
                     ],
-                    baseball: [
-                        `⚾ Break MLB! ${product} - Chassez les rookies et autographes!`,
-                        `Break premium! ${product} avec parallèles et autographes potentiels!`
-                    ],
-                    basketball: [
-                        `🏀 Break NBA! ${product} - Rookies stars et cartes numérotées!`,
-                        `Break de feu! ${product} avec memorabilia et autographes!`
-                    ],
-                    football: [
-                        `🏈 Break NFL! ${product} - Rookies et autographes!`,
-                        `Super break! ${product} avec chances de hits incroyables!`
-                    ]
+                    baseball: [`⚾ Break MLB! ${product} - Chassez les rookies et autographes!`],
+                    basketball: [`🏀 Break NBA! ${product} - Rookies stars et cartes numérotées!`],
+                    football: [`🏈 Break NFL! ${product} - Rookies et autographes!`]
                 };
 
                 const sportDescriptions = descriptions[sport] || descriptions.hockey;
@@ -197,21 +260,86 @@
                         email: reservation.email,
                         phone: reservation.phone,
                         spots: reservation.spots,
-                        paymentStatus: 'paid'
+                        paymentStatus: 'paid',
+                        timestamp: new Date().toISOString()
                     };
 
-                    breakRef.update({ participants: participants });
+                    // CORRECTION: Retirer les spots de pendingSpots en utilisant la clé
+                    const updates = {
+                        participants: participants
+                    };
+                    
+                    if (reservation.pendingKey) {
+                        updates[`pendingSpots/${reservation.pendingKey}`] = null;
+                    }
+
+                    breakRef.update(updates);
                     database.ref('reservations/' + reservation.id).update({ status: 'approved' });
                     
                     alert('Réservation approuvée!');
                 });
             };
 
-            const rejectReservation = (reservationId) => {
+            const rejectReservation = (reservation) => {
                 if (window.confirm('Voulez-vous vraiment refuser cette réservation?')) {
-                    database.ref('reservations/' + reservationId).update({ status: 'rejected' });
-                    alert('Réservation refusée');
+                    // CORRECTION: Débloquer les spots en utilisant la clé pendingKey
+                    if (reservation.pendingKey) {
+                        database.ref(`breaks/${reservation.breakId}/pendingSpots/${reservation.pendingKey}`).remove();
+                    }
+                    
+                    database.ref('reservations/' + reservation.id).update({ status: 'rejected' });
+                    alert('Réservation refusée et spots débloqués');
                 }
+            };
+
+            const mergeParticipants = (breakId) => {
+                if (mergeSelection.length < 2) {
+                    alert('Sélectionnez au moins 2 participants à fusionner');
+                    return;
+                }
+                
+                if (!newMergedName) {
+                    alert('Entrez le nom final');
+                    return;
+                }
+
+                const breakRef = database.ref('breaks/' + breakId);
+                breakRef.once('value', (snapshot) => {
+                    const breakData = snapshot.val();
+                    const participants = breakData.participants || {};
+                    
+                    const mergedSpots = [];
+                    let mergedEmail = '';
+                    let mergedPhone = '';
+                    let mergedPaymentStatus = 'paid';
+                    
+                    mergeSelection.forEach(key => {
+                        const p = participants[key];
+                        mergedSpots.push(...p.spots);
+                        if (!mergedEmail && p.email) mergedEmail = p.email;
+                        if (!mergedPhone && p.phone) mergedPhone = p.phone;
+                        if (p.paymentStatus === 'deferred') mergedPaymentStatus = 'deferred';
+                        delete participants[key];
+                    });
+
+                    const newKey = database.ref().child('participants').push().key;
+                    participants[newKey] = {
+                        name: newMergedName,
+                        email: mergedEmail,
+                        phone: mergedPhone,
+                        spots: mergedSpots.sort((a, b) => a - b),
+                        paymentStatus: mergedPaymentStatus,
+                        merged: true,
+                        timestamp: new Date().toISOString()
+                    };
+
+                    breakRef.update({ participants: participants }).then(() => {
+                        setShowMergeModal(null);
+                        setMergeSelection([]);
+                        setNewMergedName('');
+                        alert('Participants fusionnés!');
+                    });
+                });
             };
 
             const generateAnnouncementText = (breakItem) => {
@@ -220,29 +348,36 @@
                 }, 0) : 0;
                 const availableSpots = breakItem.totalSpots - soldSpots;
                 
-                return `🏒 NOUVEAU BREAK! 🏒
-
-${breakItem.title}
-
-📦 Produit: ${breakItem.product}
-📊 Boîtes: ${breakItem.boxCount}
-💰 Prix: ${breakItem.pricePerSpot}$ par spot
-👥 Spots disponibles: ${availableSpots}/${breakItem.totalSpots}
-📅 Date: ${breakItem.date || 'À déterminer'}
-⏰ Heure: ${breakItem.time || 'À déterminer'}
-
-${breakItem.description || ''}
-
-🔥 Réservez sur: [VOTRE LIEN ICI]
-💳 Paiement: Interac à vootersbreak@gmail.com
-
-#${breakItem.sport} #cardsbreak #sportscards`;
+                return `🏒 NOUVEAU BREAK! 🏒\n\n${breakItem.title}\n\n📦 Produit: ${breakItem.product}\n📊 Boîtes: ${breakItem.boxCount}\n💰 Prix: ${breakItem.pricePerSpot}$ par spot\n👥 Spots disponibles: ${availableSpots}/${breakItem.totalSpots}\n📅 Date: ${breakItem.date || 'À déterminer'}\n⏰ Heure: ${breakItem.time || 'À déterminer'}\n\n${breakItem.description || ''}\n\n🔥 Réservez: https://vootersbreak.vercel.app\n💳 Paiement: Interac à vootersbreak@gmail.com\n\n#${breakItem.sport} #cardsbreak`;
             };
 
             const copyAnnouncement = (breakItem) => {
                 const text = generateAnnouncementText(breakItem);
                 navigator.clipboard.writeText(text);
-                alert('Annonce copiée! Prête à coller sur Facebook');
+                alert('Annonce copiée!');
+            };
+
+            const calculateDebts = () => {
+                const debts = {};
+                breaks.forEach(breakItem => {
+                    if (breakItem.participants) {
+                        Object.entries(breakItem.participants).forEach(([key, participant]) => {
+                            if (participant.paymentStatus === 'deferred') {
+                                const amount = participant.spots.length * parseFloat(breakItem.pricePerSpot);
+                                if (!debts[participant.name]) {
+                                    debts[participant.name] = { total: 0, details: [] };
+                                }
+                                debts[participant.name].total += amount;
+                                debts[participant.name].details.push({
+                                    break: breakItem.title,
+                                    spots: participant.spots.length,
+                                    amount: amount
+                                });
+                            }
+                        });
+                    }
+                });
+                return debts;
             };
 
             const stats = {
@@ -253,18 +388,17 @@ ${breakItem.description || ''}
                 pending: pendingReservations.length
             };
 
-            // Login Screen
+            const totalDebts = Object.values(calculateDebts()).reduce((sum, debt) => sum + debt.total, 0);
+
             if (!isAuthenticated) {
                 return React.createElement('div', {
                     className: "min-h-screen bg-gradient-to-br from-gray-900 to-gray-800 flex items-center justify-center p-4"
                 },
-                    React.createElement('div', {
-                        className: "bg-white rounded-2xl shadow-2xl p-8 max-w-md w-full"
-                    },
+                    React.createElement('div', { className: "bg-white rounded-2xl shadow-2xl p-8 max-w-md w-full" },
                         React.createElement('div', { className: "text-center mb-8" },
                             React.createElement('div', { className: "text-6xl mb-4" }, "🔒"),
                             React.createElement('h1', { className: "text-3xl font-bold text-gray-800 mb-2" }, "Admin Login"),
-                            React.createElement('p', { className: "text-gray-600" }, "Vooters Break - Panneau d'administration")
+                            React.createElement('p', { className: "text-gray-600" }, "Vooters Break")
                         ),
                         React.createElement('div', { className: "space-y-4" },
                             React.createElement('input', {
@@ -277,52 +411,47 @@ ${breakItem.description || ''}
                             }),
                             React.createElement('button', {
                                 onClick: handleLogin,
-                                className: "w-full bg-gradient-to-r from-indigo-600 to-purple-600 text-white py-3 rounded-lg font-semibold hover:from-indigo-700 hover:to-purple-700 transition-all"
+                                className: "w-full bg-gradient-to-r from-red-600 to-red-500 text-white py-3 rounded-lg font-semibold"
                             }, "Se connecter")
                         )
                     )
                 );
             }
 
-            // Admin Dashboard
-            return React.createElement('div', {
-                className: "min-h-screen bg-gradient-to-br from-gray-50 to-gray-100"
-            },
+            return React.createElement('div', { className: "min-h-screen bg-gradient-to-br from-gray-50 to-gray-100" },
                 React.createElement('div', { className: "max-w-7xl mx-auto p-4 sm:p-6" },
-                    // Header
                     React.createElement('div', { className: "flex items-center justify-between mb-8 pt-6" },
                         React.createElement('div', {},
-                            React.createElement('h1', { className: "text-4xl font-bold text-gray-800 mb-2" }, "Admin - Vooters Break"),
-                            React.createElement('p', { className: "text-gray-600" }, "Panneau de gestion")
+                            React.createElement('h1', { className: "text-4xl font-bold text-gray-800 mb-2" }, "Admin - Vooters Break")
                         ),
                         React.createElement('div', { className: "flex gap-3" },
                             React.createElement('button', {
                                 onClick: () => setShowAddBreak(!showAddBreak),
-                                className: "flex items-center gap-2 bg-gradient-to-r from-indigo-600 to-purple-600 text-white px-6 py-3 rounded-lg font-semibold hover:shadow-lg transition-all"
+                                className: "bg-red-600 text-white px-6 py-3 rounded-lg font-semibold"
                             }, "+ Nouveau Break"),
                             React.createElement('button', {
                                 onClick: () => setIsAuthenticated(false),
-                                className: "bg-red-600 text-white px-4 py-3 rounded-lg font-semibold hover:bg-red-700 transition-all"
+                                className: "bg-gray-600 text-white px-4 py-3 rounded-lg font-semibold"
                             }, "Déconnexion")
                         )
                     ),
 
-                    // Stats Cards
-                    React.createElement('div', { className: "grid grid-cols-2 sm:grid-cols-5 gap-4 mb-6" },
+                    React.createElement('div', { className: "grid grid-cols-2 sm:grid-cols-6 gap-4 mb-6" },
                         [
-                            { label: "Total", value: stats.total, color: "gray" },
-                            { label: "À venir", value: stats.upcoming, color: "blue" },
-                            { label: "En Direct", value: stats.live, color: "red" },
-                            { label: "Complétés", value: stats.completed, color: "gray" },
-                            { label: "Réservations", value: stats.pending, color: "orange", hasNotif: stats.pending > 0 }
+                            { label: "Total", value: stats.total },
+                            { label: "À venir", value: stats.upcoming },
+                            { label: "Live", value: stats.live },
+                            { label: "Complétés", value: stats.completed },
+                            { label: "Réservations", value: stats.pending, hasNotif: stats.pending > 0 },
+                            { label: "Dettes", value: totalDebts.toFixed(0) + "$", color: "text-orange-600" }
                         ].map((stat, idx) =>
                             React.createElement('div', {
                                 key: idx,
                                 className: "bg-white rounded-xl shadow-md p-4 relative"
                             },
                                 React.createElement('p', { className: "text-sm text-gray-600 mb-2" }, stat.label),
-                                React.createElement('p', {
-                                    className: `text-2xl font-bold text-${stat.color}-600`
+                                React.createElement('p', { 
+                                    className: `text-2xl font-bold ${stat.color || ''}`
                                 }, stat.value),
                                 stat.hasNotif && React.createElement('span', {
                                     className: "absolute top-2 right-2 w-3 h-3 bg-red-500 rounded-full animate-pulse"
@@ -331,201 +460,413 @@ ${breakItem.description || ''}
                         )
                     ),
 
-                    // Tabs
-                    React.createElement('div', { className: "flex gap-2 mb-6 bg-white rounded-lg p-1 shadow-sm" },
+                    React.createElement('div', { className: "flex gap-2 mb-6 bg-white rounded-lg p-1 shadow-sm flex-wrap" },
                         React.createElement('button', {
                             onClick: () => setActiveTab('breaks'),
-                            className: `flex-1 py-3 rounded-md font-medium transition-all ${activeTab === 'breaks' ? 'bg-indigo-600 text-white' : 'text-gray-600 hover:bg-gray-50'}`
+                            className: `flex-1 py-3 rounded-md font-medium ${activeTab === 'breaks' ? 'bg-red-600 text-white' : 'text-gray-600'}`
                         }, "📦 Breaks"),
                         React.createElement('button', {
                             onClick: () => setActiveTab('reservations'),
-                            className: `flex-1 py-3 rounded-md font-medium transition-all relative ${activeTab === 'reservations' ? 'bg-indigo-600 text-white' : 'text-gray-600 hover:bg-gray-50'}`
+                            className: `flex-1 py-3 rounded-md font-medium relative ${activeTab === 'reservations' ? 'bg-red-600 text-white' : 'text-gray-600'}`
                         },
                             `🔔 Réservations (${stats.pending})`,
                             stats.pending > 0 && React.createElement('span', {
                                 className: "absolute top-2 right-2 w-2 h-2 bg-red-500 rounded-full animate-pulse"
                             })
-                        )
+                        ),
+                        React.createElement('button', {
+                            onClick: () => setActiveTab('debts'),
+                            className: `flex-1 py-3 rounded-md font-medium ${activeTab === 'debts' ? 'bg-red-600 text-white' : 'text-gray-600'}`
+                        }, "💰 Dettes")
                     ),
 
-                    // Add Break Form
-                    showAddBreak && activeTab === 'breaks' && React.createElement('div', {
-                        className: "bg-white rounded-xl shadow-lg p-6 mb-6"
-                    },
-                        React.createElement('h2', { className: "text-2xl font-bold mb-6" }, "Créer un nouveau break"),
+                    (showAddBreak || editingBreak) && React.createElement('div', { className: "bg-white rounded-xl shadow-lg p-6 mb-6" },
+                        React.createElement('h2', { className: "text-2xl font-bold mb-6" }, editingBreak ? "Modifier le break" : "Créer un nouveau break"),
                         React.createElement('div', { className: "grid sm:grid-cols-2 gap-4 mb-4" },
                             React.createElement('input', {
                                 type: "text",
-                                value: newBreak.title,
-                                onChange: (e) => setNewBreak({...newBreak, title: e.target.value}),
-                                placeholder: "Titre du break *",
-                                className: "px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500"
+                                value: editingBreak ? editingBreak.title : newBreak.title,
+                                onChange: (e) => editingBreak ? 
+                                    setEditingBreak({...editingBreak, title: e.target.value}) :
+                                    setNewBreak({...newBreak, title: e.target.value}),
+                                placeholder: "Titre *",
+                                className: "px-4 py-2 border rounded-lg"
                             }),
                             React.createElement('select', {
-                                value: newBreak.sport,
-                                onChange: (e) => setNewBreak({...newBreak, sport: e.target.value}),
-                                className: "px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500"
+                                value: editingBreak ? editingBreak.sport : newBreak.sport,
+                                onChange: (e) => editingBreak ?
+                                    setEditingBreak({...editingBreak, sport: e.target.value}) :
+                                    setNewBreak({...newBreak, sport: e.target.value}),
+                                className: "px-4 py-2 border rounded-lg"
                             },
-                                React.createElement('option', { value: "hockey" }, "Hockey"),
-                                React.createElement('option', { value: "baseball" }, "Baseball"),
-                                React.createElement('option', { value: "basketball" }, "Basketball"),
-                                React.createElement('option', { value: "football" }, "Football")
+                                ['hockey', 'baseball', 'basketball', 'football'].map(sport =>
+                                    React.createElement('option', { key: sport, value: sport }, sport.charAt(0).toUpperCase() + sport.slice(1))
+                                )
                             ),
                             React.createElement('input', {
                                 type: "text",
-                                value: newBreak.product,
-                                onChange: (e) => setNewBreak({...newBreak, product: e.target.value}),
-                                placeholder: "Produit (ex: Upper Deck Series 1) *",
-                                className: "px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500"
+                                value: editingBreak ? editingBreak.product : newBreak.product,
+                                onChange: (e) => editingBreak ?
+                                    setEditingBreak({...editingBreak, product: e.target.value}) :
+                                    setNewBreak({...newBreak, product: e.target.value}),
+                                placeholder: "Produit *",
+                                className: "px-4 py-2 border rounded-lg"
                             }),
                             React.createElement('input', {
                                 type: "number",
-                                value: newBreak.boxCount,
-                                onChange: (e) => setNewBreak({...newBreak, boxCount: parseInt(e.target.value) || 1}),
-                                placeholder: "Nombre de boîtes",
-                                min: "1",
-                                className: "px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500"
+                                value: editingBreak ? editingBreak.boxCount : newBreak.boxCount,
+                                onChange: (e) => editingBreak ?
+                                    setEditingBreak({...editingBreak, boxCount: parseInt(e.target.value) || 1}) :
+                                    setNewBreak({...newBreak, boxCount: parseInt(e.target.value) || 1}),
+                                placeholder: "Boîtes",
+                                className: "px-4 py-2 border rounded-lg"
                             }),
                             React.createElement('input', {
                                 type: "number",
-                                value: newBreak.pricePerSpot,
-                                onChange: (e) => setNewBreak({...newBreak, pricePerSpot: e.target.value}),
-                                placeholder: "Prix par spot (ex: 25) *",
-                                className: "px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500"
+                                value: editingBreak ? editingBreak.pricePerSpot : newBreak.pricePerSpot,
+                                onChange: (e) => editingBreak ?
+                                    setEditingBreak({...editingBreak, pricePerSpot: e.target.value}) :
+                                    setNewBreak({...newBreak, pricePerSpot: e.target.value}),
+                                placeholder: "Prix/spot *",
+                                className: "px-4 py-2 border rounded-lg"
                             }),
                             React.createElement('input', {
                                 type: "number",
-                                value: newBreak.totalSpots,
-                                onChange: (e) => setNewBreak({...newBreak, totalSpots: parseInt(e.target.value) || 32}),
-                                placeholder: "Nombre de spots",
-                                min: "1",
-                                max: "32",
-                                className: "px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500"
+                                value: editingBreak ? editingBreak.totalSpots : newBreak.totalSpots,
+                                onChange: (e) => editingBreak ?
+                                    setEditingBreak({...editingBreak, totalSpots: parseInt(e.target.value) || 32}) :
+                                    setNewBreak({...newBreak, totalSpots: parseInt(e.target.value) || 32}),
+                                placeholder: "Spots",
+                                className: "px-4 py-2 border rounded-lg"
                             }),
                             React.createElement('input', {
                                 type: "date",
-                                value: newBreak.date,
-                                onChange: (e) => setNewBreak({...newBreak, date: e.target.value}),
-                                className: "px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500"
+                                value: editingBreak ? editingBreak.date : newBreak.date,
+                                onChange: (e) => editingBreak ?
+                                    setEditingBreak({...editingBreak, date: e.target.value}) :
+                                    setNewBreak({...newBreak, date: e.target.value}),
+                                className: "px-4 py-2 border rounded-lg"
                             }),
                             React.createElement('input', {
                                 type: "time",
-                                value: newBreak.time,
-                                onChange: (e) => setNewBreak({...newBreak, time: e.target.value}),
-                                className: "px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500"
+                                value: editingBreak ? editingBreak.time : newBreak.time,
+                                onChange: (e) => editingBreak ?
+                                    setEditingBreak({...editingBreak, time: e.target.value}) :
+                                    setNewBreak({...newBreak, time: e.target.value}),
+                                className: "px-4 py-2 border rounded-lg"
                             })
                         ),
                         React.createElement('textarea', {
-                            value: newBreak.description,
-                            onChange: (e) => setNewBreak({...newBreak, description: e.target.value}),
-                            placeholder: "Description (ou cliquez sur 'Description IA' après création)",
+                            value: editingBreak ? editingBreak.description : newBreak.description,
+                            onChange: (e) => editingBreak ?
+                                setEditingBreak({...editingBreak, description: e.target.value}) :
+                                setNewBreak({...newBreak, description: e.target.value}),
+                            placeholder: "Description",
                             rows: "3",
-                            className: "w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 mb-4"
+                            className: "w-full px-4 py-2 border rounded-lg mb-4"
                         }),
                         React.createElement('div', { className: "flex gap-3" },
                             React.createElement('button', {
-                                onClick: addBreak,
-                                className: "flex-1 bg-indigo-600 text-white py-3 rounded-lg font-semibold hover:bg-indigo-700"
-                            }, "✅ Créer le break"),
+                                onClick: editingBreak ? saveEditBreak : addBreak,
+                                className: "flex-1 bg-red-600 text-white py-3 rounded-lg font-semibold"
+                            }, editingBreak ? "💾 Sauvegarder" : "✅ Créer"),
                             React.createElement('button', {
-                                onClick: () => setShowAddBreak(false),
-                                className: "px-6 py-3 border-2 border-gray-300 rounded-lg font-semibold hover:bg-gray-50"
+                                onClick: () => {
+                                    setShowAddBreak(false);
+                                    setEditingBreak(null);
+                                },
+                                className: "px-6 py-3 border-2 rounded-lg font-semibold"
                             }, "Annuler")
                         )
                     ),
 
-                    // Content
-                    activeTab === 'breaks' ?
-                        // Breaks List
-                        React.createElement('div', { className: "space-y-4" },
-                            breaks.length === 0 ?
-                                React.createElement('div', { className: "bg-white rounded-xl shadow-md p-12 text-center" },
-                                    React.createElement('div', { className: "text-6xl mb-4" }, "📦"),
-                                    React.createElement('p', { className: "text-gray-500 text-lg" }, "Aucun break créé"),
-                                    React.createElement('p', { className: "text-gray-400 text-sm mt-2" }, "Cliquez sur 'Nouveau Break' pour commencer!")
-                                )
-                            :
-                                breaks.map(breakItem => React.createElement('div', {
+                    activeTab === 'breaks' && React.createElement('div', { className: "space-y-4" },
+                        breaks.length === 0 ?
+                            React.createElement('div', { className: "bg-white rounded-xl shadow-md p-12 text-center" },
+                                React.createElement('p', { className: "text-gray-500 text-lg" }, "Aucun break")
+                            )
+                        :
+                            breaks.map(breakItem => {
+                                const participants = breakItem.participants ? Object.entries(breakItem.participants) : [];
+                                const deferredCount = participants.filter(([k, p]) => p.paymentStatus === 'deferred').length;
+                                
+                                return React.createElement('div', {
                                     key: breakItem.id,
                                     className: "bg-white rounded-xl shadow-md p-6"
                                 },
-                                    React.createElement('div', { className: "flex items-start justify-between mb-4" },
+                                    React.createElement('div', { className: "flex justify-between mb-4" },
                                         React.createElement('div', {},
-                                            React.createElement('h3', { className: "text-xl font-bold text-gray-800 mb-1" }, breakItem.title),
+                                            React.createElement('h3', { className: "text-xl font-bold" }, breakItem.title),
                                             React.createElement('p', { className: "text-gray-600" }, breakItem.product),
-                                            breakItem.description && React.createElement('p', { className: "text-sm text-gray-500 italic mt-1" }, breakItem.description)
-                                        ),
-                                        React.createElement('div', { className: "flex gap-2" },
-                                            React.createElement('span', {
-                                                className: `px-3 py-1 rounded-full text-xs font-semibold ${
-                                                    breakItem.status === 'live' ? 'bg-red-100 text-red-700' :
-                                                    breakItem.status === 'upcoming' ? 'bg-blue-100 text-blue-700' :
-                                                    'bg-gray-100 text-gray-700'
-                                                }`
-                                            }, breakItem.status === 'live' ? '🔴 EN DIRECT' : 
-                                               breakItem.status === 'upcoming' ? '📅 À VENIR' : '✅ COMPLÉTÉ'),
-                                            React.createElement('button', {
-                                                onClick: () => deleteBreak(breakItem.id),
-                                                className: "text-red-600 hover:bg-red-50 px-2 rounded"
-                                            }, "🗑️")
-                                        )
-                                    ),
-                                    React.createElement('div', { className: "grid grid-cols-2 sm:grid-cols-4 gap-3 mb-4 text-sm" },
-                                        React.createElement('div', {},
-                                            React.createElement('p', { className: "text-gray-600" }, "Prix/spot"),
-                                            React.createElement('p', { className: "font-semibold text-lg" }, breakItem.pricePerSpot + "$")
-                                        ),
-                                        React.createElement('div', {},
-                                            React.createElement('p', { className: "text-gray-600" }, "Spots"),
-                                            React.createElement('p', { className: "font-semibold text-lg" }, breakItem.totalSpots)
-                                        ),
-                                        React.createElement('div', {},
-                                            React.createElement('p', { className: "text-gray-600" }, "Date"),
-                                            React.createElement('p', { className: "font-semibold" }, breakItem.date || 'TBD')
-                                        ),
-                                        React.createElement('div', {},
-                                            React.createElement('p', { className: "text-gray-600" }, "Participants"),
-                                            React.createElement('p', { className: "font-semibold text-lg" }, 
-                                                Object.keys(breakItem.participants || {}).length
+                                            participants.length > 0 && React.createElement('p', { className: "text-sm text-gray-500 mt-1" },
+                                                `${participants.length} participant(s)` +
+                                                (deferredCount > 0 ? ` - ${deferredCount} paiement(s) reporté(s)` : '')
                                             )
-                                        )
+                                        ),
+                                        React.createElement('button', {
+                                            onClick: () => deleteBreak(breakItem.id),
+                                            className: "text-red-600"
+                                        }, "🗑️")
                                     ),
-                                    React.createElement('div', { className: "flex flex-wrap gap-2" },
+                                    React.createElement('div', { className: "flex flex-wrap gap-2 mb-4" },
+                                        React.createElement('button', {
+                                            onClick: () => startEditBreak(breakItem),
+                                            className: "px-4 py-2 bg-blue-600 text-white rounded-lg text-sm"
+                                        }, "✏️ Modifier"),
                                         React.createElement('button', {
                                             onClick: () => copyAnnouncement(breakItem),
-                                            className: "px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 text-sm font-medium"
-                                        }, "📢 Copier annonce"),
+                                            className: "px-4 py-2 bg-green-600 text-white rounded-lg text-sm"
+                                        }, "📢 Annonce"),
                                         React.createElement('button', {
                                             onClick: () => addAIDescription(breakItem.id, breakItem),
-                                            className: "px-4 py-2 bg-purple-600 text-white rounded-lg hover:bg-purple-700 text-sm font-medium"
-                                        }, "✨ Description IA"),
+                                            className: "px-4 py-2 bg-purple-600 text-white rounded-lg text-sm"
+                                        }, "✨ IA"),
+                                        React.createElement('button', {
+                                            onClick: () => setShowManualSpots(breakItem),
+                                            className: "px-4 py-2 bg-orange-600 text-white rounded-lg text-sm"
+                                        }, "👤 Donner Spots"),
+                                        participants.length >= 2 && React.createElement('button', {
+                                            onClick: () => {
+                                                setShowMergeModal(breakItem);
+                                                setMergeSelection([]);
+                                                setNewMergedName('');
+                                            },
+                                            className: "px-4 py-2 bg-yellow-600 text-white rounded-lg text-sm"
+                                        }, "🔗 Fusionner"),
                                         React.createElement('button', {
                                             onClick: () => updateBreakStatus(breakItem.id, 'live'),
-                                            className: "px-4 py-2 bg-red-600 text-white rounded-lg hover:bg-red-700 text-sm font-medium",
-                                            disabled: breakItem.status === 'live'
-                                        }, "🔴 Passer LIVE"),
+                                            className: "px-4 py-2 bg-red-600 text-white rounded-lg text-sm"
+                                        }, "🔴 Live"),
                                         React.createElement('button', {
                                             onClick: () => updateBreakStatus(breakItem.id, 'completed'),
-                                            className: "px-4 py-2 bg-gray-600 text-white rounded-lg hover:bg-gray-700 text-sm font-medium"
+                                            className: "px-4 py-2 bg-gray-600 text-white rounded-lg text-sm"
                                         }, "✅ Terminer")
+                                    ),
+                                    
+                                    participants.length > 0 && React.createElement('div', { className: "mt-4 border-t pt-4" },
+                                        React.createElement('h4', { className: "font-semibold mb-2" }, "Participants:"),
+                                        React.createElement('div', { className: "space-y-2" },
+                                            participants.map(([key, participant]) =>
+                                                React.createElement('div', {
+                                                    key: key,
+                                                    className: "flex items-center justify-between p-2 bg-gray-50 rounded"
+                                                },
+                                                    React.createElement('div', {},
+                                                        React.createElement('span', { className: "font-medium" }, participant.name),
+                                                        React.createElement('span', { className: "text-sm text-gray-600 ml-2" },
+                                                            `Spots: ${participant.spots.join(', ')}`
+                                                        )
+                                                    ),
+                                                    React.createElement('select', {
+                                                        value: participant.paymentStatus || 'paid',
+                                                        onChange: (e) => updatePaymentStatus(breakItem.id, key, e.target.value),
+                                                        className: `px-2 py-1 rounded text-sm ${
+                                                            participant.paymentStatus === 'paid' ? 'bg-green-100 text-green-700' :
+                                                            participant.paymentStatus === 'deferred' ? 'bg-orange-100 text-orange-700' :
+                                                            'bg-gray-100 text-gray-700'
+                                                        }`
+                                                    },
+                                                        React.createElement('option', { value: 'paid' }, '✅ Payé'),
+                                                        React.createElement('option', { value: 'deferred' }, '⏳ Reporté'),
+                                                        React.createElement('option', { value: 'pending' }, '⏱️ En attente')
+                                                    )
+                                                )
+                                            )
+                                        )
                                     )
-                                ))
-                        )
-                    :
-                        // Reservations List
-                        React.createElement('div', { className: "space-y-4" },
-                            pendingReservations.length === 0 ?
-                                React.createElement('div', { className: "bg-white rounded-xl shadow-md p-12 text-center" },
-                                    React.createElement('div', { className: "text-6xl mb-4" }, "🔔"),
-                                    React.createElement('p', { className: "text-gray-500 text-lg" }, "Aucune réservation en attente"),
-                                    React.createElement('p', { className: "text-gray-400 text-sm mt-2" }, "Les nouvelles réservations apparaîtront ici")
+                                );
+                            })
+                    ),
+
+                    activeTab === 'reservations' && React.createElement('div', { className: "space-y-4" },
+                        pendingReservations.length === 0 ?
+                            React.createElement('div', { className: "bg-white rounded-xl shadow-md p-12 text-center" },
+                                React.createElement('p', { className: "text-gray-500 text-lg" }, "Aucune réservation")
+                            )
+                        :
+                            pendingReservations.map(reservation => React.createElement('div', {
+                                key: reservation.id,
+                                className: "bg-white rounded-xl shadow-md p-6"
+                            },
+                                React.createElement('h3', { className: "text-xl font-bold mb-2" }, reservation.name),
+                                React.createElement('p', { className: "text-gray-600 mb-1" }, reservation.breakTitle),
+                                React.createElement('p', { className: "text-sm text-gray-500 mb-2" }, `Email: ${reservation.email}`),
+                                React.createElement('p', { className: "font-semibold text-green-600 mb-4" }, 
+                                    `${reservation.totalAmount}$ - Spots: ${reservation.spots.join(', ')}`
+                                ),
+                                React.createElement('div', { className: "flex gap-3" },
+                                    React.createElement('button', {
+                                        onClick: () => approveReservation(reservation),
+                                        className: "flex-1 bg-green-600 text-white py-3 rounded-lg font-semibold"
+                                    }, "✅ Approuver"),
+                                    React.createElement('button', {
+                                        onClick: () => rejectReservation(reservation),
+                                        className: "flex-1 bg-red-600 text-white py-3 rounded-lg font-semibold"
+                                    }, "❌ Refuser")
                                 )
-                            :
-                                pendingReservations.map(reservation => React.createElement('div', {
-                                    key: reservation.id,
-                                    className: "bg-white rounded-xl shadow-md p-6 border-2 border-orange-200"
+                            ))
+                    ),
+
+                    activeTab === 'debts' && React.createElement('div', { className: "space-y-4" },
+                        Object.keys(calculateDebts()).length === 0 ?
+                            React.createElement('div', { className: "bg-white rounded-xl shadow-md p-12 text-center" },
+                                React.createElement('div', { className: "text-6xl mb-4" }, "🎉"),
+                                React.createElement('p', { className: "text-gray-500 text-lg" }, "Aucune dette!"),
+                                React.createElement('p', { className: "text-gray-400 text-sm mt-2" }, "Tous les paiements sont à jour")
+                            )
+                        :
+                            Object.entries(calculateDebts()).map(([name, debt]) =>
+                                React.createElement('div', {
+                                    key: name,
+                                    className: "bg-white rounded-xl shadow-md p-6"
                                 },
-                                    React.createElement('div', { className: "flex items-start justify-between mb-4" },
-                                        React.createElement('div', {},
-                                            React.createElement('h3', { className: "text-xl font-bold text-gray-800" }, reservation.name),
-                                            React.createElement('p', { className: "text
+                                    React.createElement('div', { className: "flex items-center justify-between mb-4" },
+                                        React.createElement('h3', { className: "text-xl font-bold" }, name),
+                                        React.createElement('span', { className: "text-2xl font-bold text-orange-600" }, 
+                                            debt.total.toFixed(2) + "$"
+                                        )
+                                    ),
+                                    React.createElement('div', { className: "space-y-2" },
+                                        debt.details.map((detail, idx) =>
+                                            React.createElement('div', {
+                                                key: idx,
+                                                className: "flex items-center justify-between p-3 bg-orange-50 rounded-lg"
+                                            },
+                                                React.createElement('div', {},
+                                                    React.createElement('p', { className: "font-medium text-sm" }, detail.break),
+                                                    React.createElement('p', { className: "text-xs text-gray-600" }, 
+                                                        `${detail.spots} spot(s)`
+                                                    )
+                                                ),
+                                                React.createElement('span', { className: "font-bold text-orange-600" }, 
+                                                    detail.amount.toFixed(2) + "$"
+                                                )
+                                            )
+                                        )
+                                    )
+                                )
+                            )
+                    ),
+
+                    showManualSpots && React.createElement('div', {
+                        className: "fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4"
+                    },
+                        React.createElement('div', { className: "bg-white rounded-xl shadow-2xl max-w-md w-full p-6" },
+                            React.createElement('h2', { className: "text-2xl font-bold mb-4" }, 
+                                "Attribuer des spots - " + showManualSpots.title
+                            ),
+                            React.createElement('div', { className: "space-y-4 mb-6" },
+                                React.createElement('input', {
+                                    type: "text",
+                                    value: manualSpotForm.name,
+                                    onChange: (e) => setManualSpotForm({...manualSpotForm, name: e.target.value}),
+                                    placeholder: "Nom du participant",
+                                    className: "w-full px-4 py-2 border rounded-lg"
+                                }),
+                                React.createElement('input', {
+                                    type: "text",
+                                    value: manualSpotForm.spots,
+                                    onChange: (e) => setManualSpotForm({...manualSpotForm, spots: e.target.value}),
+                                    placeholder: "Spots (ex: 1, 5, 12)",
+                                    className: "w-full px-4 py-2 border rounded-lg"
+                                }),
+                                React.createElement('select', {
+                                    value: manualSpotForm.paymentStatus,
+                                    onChange: (e) => setManualSpotForm({...manualSpotForm, paymentStatus: e.target.value}),
+                                    className: "w-full px-4 py-2 border rounded-lg"
+                                },
+                                    React.createElement('option', { value: 'deferred' }, '⏳ Paiement reporté'),
+                                    React.createElement('option', { value: 'paid' }, '✅ Déjà payé'),
+                                    React.createElement('option', { value: 'pending' }, '⏱️ En attente')
+                                )
+                            ),
+                            React.createElement('div', { className: "flex gap-3" },
+                                React.createElement('button', {
+                                    onClick: addManualSpots,
+                                    className: "flex-1 bg-orange-600 text-white py-3 rounded-lg font-semibold"
+                                }, "✅ Attribuer"),
+                                React.createElement('button', {
+                                    onClick: () => {
+                                        setShowManualSpots(null);
+                                        setManualSpotForm({ name: '', spots: '', paymentStatus: 'deferred' });
+                                    },
+                                    className: "px-6 py-3 border-2 rounded-lg font-semibold"
+                                }, "Annuler")
+                            )
+                        )
+                    ),
+
+                    showMergeModal && React.createElement('div', {
+                        className: "fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4"
+                    },
+                        React.createElement('div', { className: "bg-white rounded-xl shadow-2xl max-w-2xl w-full p-6 max-h-[90vh] overflow-y-auto" },
+                            React.createElement('h2', { className: "text-2xl font-bold mb-4" }, 
+                                "Fusionner des participants - " + showMergeModal.title
+                            ),
+                            React.createElement('div', { className: "mb-6" },
+                                React.createElement('p', { className: "text-gray-600 mb-4" }, "Sélectionnez les participants à fusionner:"),
+                                React.createElement('div', { className: "space-y-2" },
+                                    showMergeModal.participants && Object.entries(showMergeModal.participants).map(([key, participant]) =>
+                                        React.createElement('label', {
+                                            key: key,
+                                            className: "flex items-center p-3 bg-gray-50 rounded-lg cursor-pointer hover:bg-gray-100"
+                                        },
+                                            React.createElement('input', {
+                                                type: "checkbox",
+                                                checked: mergeSelection.includes(key),
+                                                onChange: (e) => {
+                                                    if (e.target.checked) {
+                                                        setMergeSelection([...mergeSelection, key]);
+                                                    } else {
+                                                        setMergeSelection(mergeSelection.filter(k => k !== key));
+                                                    }
+                                                },
+                                                className: "mr-3"
+                                            }),
+                                            React.createElement('div', {},
+                                                React.createElement('p', { className: "font-medium" }, participant.name),
+                                                React.createElement('p', { className: "text-sm text-gray-600" }, 
+                                                    `Spots: ${participant.spots.join(', ')}`
+                                                )
+                                            )
+                                        )
+                                    )
+                                )
+                            ),
+                            mergeSelection.length >= 2 && React.createElement('div', { className: "mb-6" },
+                                React.createElement('input', {
+                                    type: "text",
+                                    value: newMergedName,
+                                    onChange: (e) => setNewMergedName(e.target.value),
+                                    placeholder: "Nom final du participant fusionné",
+                                    className: "w-full px-4 py-2 border rounded-lg"
+                                })
+                            ),
+                            React.createElement('div', { className: "flex gap-3" },
+                                React.createElement('button', {
+                                    onClick: () => mergeParticipants(showMergeModal.id),
+                                    disabled: mergeSelection.length < 2 || !newMergedName,
+                                    className: "flex-1 bg-yellow-600 text-white py-3 rounded-lg font-semibold disabled:opacity-50 disabled:cursor-not-allowed"
+                                }, "🔗 Fusionner"),
+                                React.createElement('button', {
+                                    onClick: () => {
+                                        setShowMergeModal(null);
+                                        setMergeSelection([]);
+                                        setNewMergedName('');
+                                    },
+                                    className: "px-6 py-3 border-2 rounded-lg font-semibold"
+                                }, "Annuler")
+                            )
+                        )
+                    )
+                )
+            );
+        }
+
+        ReactDOM.render(
+            React.createElement(VootersBreakAdmin),
+            document.getElementById('root')
+        );
+    </script>
+</body>
+</html>
